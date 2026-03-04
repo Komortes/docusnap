@@ -9,26 +9,47 @@ import (
 )
 
 type Result struct {
-	AddedFrameworks     []string                      `json:"addedFrameworks"`
-	RemovedFrameworks   []string                      `json:"removedFrameworks"`
-	AddedDependencies   map[string][]model.Dependency `json:"addedDependencies"`
-	RemovedDependencies map[string][]model.Dependency `json:"removedDependencies"`
-	AddedRoutes         []model.Route                 `json:"addedRoutes"`
-	RemovedRoutes       []model.Route                 `json:"removedRoutes"`
+	AddedLanguages         []string                      `json:"addedLanguages"`
+	RemovedLanguages       []string                      `json:"removedLanguages"`
+	AddedPackageManagers   []string                      `json:"addedPackageManagers"`
+	RemovedPackageManagers []string                      `json:"removedPackageManagers"`
+	AddedInfrastructure    []string                      `json:"addedInfrastructureServices"`
+	RemovedInfrastructure  []string                      `json:"removedInfrastructureServices"`
+	AddedFrameworks        []string                      `json:"addedFrameworks"`
+	RemovedFrameworks      []string                      `json:"removedFrameworks"`
+	AddedDependencies      map[string][]model.Dependency `json:"addedDependencies"`
+	RemovedDependencies    map[string][]model.Dependency `json:"removedDependencies"`
+	AddedRoutes            []model.Route                 `json:"addedRoutes"`
+	RemovedRoutes          []model.Route                 `json:"removedRoutes"`
 }
 
 func Compare(oldSnap, newSnap model.Snapshot) Result {
 	return Result{
-		AddedFrameworks:     addedStrings(oldSnap.Frameworks, newSnap.Frameworks),
-		RemovedFrameworks:   addedStrings(newSnap.Frameworks, oldSnap.Frameworks),
-		AddedDependencies:   compareDependencies(oldSnap.Dependencies, newSnap.Dependencies),
-		RemovedDependencies: compareDependencies(newSnap.Dependencies, oldSnap.Dependencies),
-		AddedRoutes:         compareRoutes(oldSnap.Routes, newSnap.Routes),
-		RemovedRoutes:       compareRoutes(newSnap.Routes, oldSnap.Routes),
+		AddedLanguages:         addedStrings(oldSnap.Languages, newSnap.Languages),
+		RemovedLanguages:       addedStrings(newSnap.Languages, oldSnap.Languages),
+		AddedPackageManagers:   addedStrings(oldSnap.PackageManagers, newSnap.PackageManagers),
+		RemovedPackageManagers: addedStrings(newSnap.PackageManagers, oldSnap.PackageManagers),
+		AddedInfrastructure:    addedStrings(oldSnap.Infrastructure, newSnap.Infrastructure),
+		RemovedInfrastructure:  addedStrings(newSnap.Infrastructure, oldSnap.Infrastructure),
+		AddedFrameworks:        addedStrings(oldSnap.Frameworks, newSnap.Frameworks),
+		RemovedFrameworks:      addedStrings(newSnap.Frameworks, oldSnap.Frameworks),
+		AddedDependencies:      compareDependencies(oldSnap.Dependencies, newSnap.Dependencies),
+		RemovedDependencies:    compareDependencies(newSnap.Dependencies, oldSnap.Dependencies),
+		AddedRoutes:            compareRoutes(oldSnap.Routes, newSnap.Routes),
+		RemovedRoutes:          compareRoutes(newSnap.Routes, oldSnap.Routes),
 	}
 }
 
 func (r Result) HasChanges() bool {
+	if len(r.AddedLanguages) > 0 || len(r.RemovedLanguages) > 0 {
+		return true
+	}
+	if len(r.AddedPackageManagers) > 0 || len(r.RemovedPackageManagers) > 0 {
+		return true
+	}
+	if len(r.AddedInfrastructure) > 0 || len(r.RemovedInfrastructure) > 0 {
+		return true
+	}
 	if len(r.AddedFrameworks) > 0 || len(r.RemovedFrameworks) > 0 {
 		return true
 	}
@@ -55,6 +76,28 @@ func (r Result) RenderText() string {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "Changes detected\n\n")
+
+	if len(r.AddedLanguages) > 0 || len(r.RemovedLanguages) > 0 {
+		fmt.Fprintf(&b, "Languages\n")
+		for _, language := range r.AddedLanguages {
+			fmt.Fprintf(&b, "+ %s\n", language)
+		}
+		for _, language := range r.RemovedLanguages {
+			fmt.Fprintf(&b, "- %s\n", language)
+		}
+		fmt.Fprintf(&b, "\n")
+	}
+
+	if len(r.AddedPackageManagers) > 0 || len(r.RemovedPackageManagers) > 0 {
+		fmt.Fprintf(&b, "Package managers\n")
+		for _, manager := range r.AddedPackageManagers {
+			fmt.Fprintf(&b, "+ %s\n", manager)
+		}
+		for _, manager := range r.RemovedPackageManagers {
+			fmt.Fprintf(&b, "- %s\n", manager)
+		}
+		fmt.Fprintf(&b, "\n")
+	}
 
 	if hasDependencyChanges(r.AddedDependencies, r.RemovedDependencies) {
 		fmt.Fprintf(&b, "Dependencies\n")
@@ -85,6 +128,17 @@ func (r Result) RenderText() string {
 		}
 		for _, fw := range r.RemovedFrameworks {
 			fmt.Fprintf(&b, "- %s\n", fw)
+		}
+		fmt.Fprintf(&b, "\n")
+	}
+
+	if len(r.AddedInfrastructure) > 0 || len(r.RemovedInfrastructure) > 0 {
+		fmt.Fprintf(&b, "Infrastructure services\n")
+		for _, service := range r.AddedInfrastructure {
+			fmt.Fprintf(&b, "+ %s\n", service)
+		}
+		for _, service := range r.RemovedInfrastructure {
+			fmt.Fprintf(&b, "- %s\n", service)
 		}
 	}
 
