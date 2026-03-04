@@ -208,3 +208,62 @@ func main() {
 		t.Fatalf("expected gin framework, got %#v", snap.Frameworks)
 	}
 }
+
+func TestParseDockerComposeServices(t *testing.T) {
+	tmp := t.TempDir()
+	composePath := filepath.Join(tmp, "docker-compose.yml")
+	content := `version: "3.9"
+services:
+  app:
+    build: .
+  db:
+    image: postgres:16
+  cache:
+    image: redis:7
+  broker:
+    image: rabbitmq:3-management
+`
+	if err := os.WriteFile(composePath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write docker-compose.yml: %v", err)
+	}
+
+	services, err := parseDockerComposeServices(composePath)
+	if err != nil {
+		t.Fatalf("parse docker-compose services: %v", err)
+	}
+	if !containsString(services, "postgres") || !containsString(services, "redis") || !containsString(services, "rabbitmq") {
+		t.Fatalf("unexpected services: %#v", services)
+	}
+}
+
+func TestScanDetectsComposeInfrastructureServices(t *testing.T) {
+	tmp := t.TempDir()
+	composePath := filepath.Join(tmp, "docker-compose.yml")
+	content := `services:
+  db:
+    image: mysql:8
+  cache:
+    image: redis:7
+`
+	if err := os.WriteFile(composePath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write docker-compose.yml: %v", err)
+	}
+
+	snap, err := Scan(tmp)
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+
+	if !containsString(snap.Infrastructure, "docker") || !containsString(snap.Infrastructure, "mysql") || !containsString(snap.Infrastructure, "redis") {
+		t.Fatalf("unexpected infrastructure: %#v", snap.Infrastructure)
+	}
+}
+
+func containsString(items []string, target string) bool {
+	for _, item := range items {
+		if item == target {
+			return true
+		}
+	}
+	return false
+}

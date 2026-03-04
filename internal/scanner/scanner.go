@@ -155,7 +155,7 @@ func Scan(root string) (model.Snapshot, error) {
 	configs := collectDetectedFiles(foundConfigFiles)
 	languages, managers := detectLanguagesAndManagers(detectedFiles)
 	frameworks := sortedSet(frameworkSet)
-	infrastructure := detectInfrastructureServices(configs)
+	infrastructure := detectInfrastructureServices(rootAbs, configs)
 	routes = deduplicateRoutes(routes)
 	if foundLaravelRoutes {
 		frameworkSet["laravel"] = struct{}{}
@@ -419,18 +419,150 @@ func detectFrameworksFromDependencies(manager string, deps []model.Dependency, s
 	}
 }
 
-func detectInfrastructureServices(configs []string) []string {
+func detectInfrastructureServices(rootAbs string, configs []string) []string {
 	set := map[string]struct{}{}
 	for _, cfg := range configs {
 		lower := strings.ToLower(cfg)
 		if strings.Contains(lower, "docker-compose") || strings.Contains(lower, "dockerfile") {
 			set["docker"] = struct{}{}
 		}
+		if strings.Contains(lower, "docker-compose") {
+			composePath := filepath.Join(rootAbs, cfg)
+			services, err := parseDockerComposeServices(composePath)
+			if err == nil {
+				for _, service := range services {
+					set[service] = struct{}{}
+				}
+			}
+		}
 		if strings.Contains(lower, ".env") {
 			set["env-file"] = struct{}{}
 		}
 	}
 	return sortedSet(set)
+}
+
+func parseDockerComposeServices(path string) ([]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	found := map[string]struct{}{}
+	inServices := false
+	servicesIndent := -1
+	currentServiceIndent := -1
+
+	s := bufio.NewScanner(file)
+	for s.Scan() {
+		raw := s.Text()
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		indent := leadingIndent(raw)
+		if !inServices {
+			if trimmed == "services:" {
+				inServices = true
+				servicesIndent = indent
+			}
+			continue
+		}
+
+		if indent <= servicesIndent && !strings.HasPrefix(trimmed, "-") {
+			inServices = false
+			continue
+		}
+
+		if isYAMLKey(trimmed) && indent == servicesIndent+2 {
+			serviceName := strings.TrimSuffix(trimmed, ":")
+			currentServiceIndent = indent
+			if svc := detectInfraService(serviceName); svc != "" {
+				found[svc] = struct{}{}
+			}
+			continue
+		}
+
+		if currentServiceIndent != -1 && indent <= currentServiceIndent {
+			currentServiceIndent = -1
+		}
+		if currentServiceIndent == -1 {
+			continue
+		}
+
+		if strings.HasPrefix(trimmed, "image:") {
+			image := strings.TrimSpace(strings.TrimPrefix(trimmed, "image:"))
+			image = strings.Trim(image, `"'`)
+			if svc := detectInfraService(image); svc != "" {
+				found[svc] = struct{}{}
+			}
+		}
+	}
+	if err := s.Err(); err != nil {
+		return nil, err
+	}
+
+	return sortedSet(found), nil
+}
+
+func leadingIndent(line string) int {
+	n := 0
+	for _, ch := range line {
+		if ch == ' ' {
+			n++
+			continue
+		}
+		if ch == '\t' {
+			n += 2
+			continue
+		}
+		break
+	}
+	return n
+}
+
+func isYAMLKey(trimmed string) bool {
+	return strings.HasSuffix(trimmed, ":") && !strings.Contains(trimmed, " ")
+}
+
+func detectInfraService(value string) string {
+	v := strings.ToLower(value)
+	switch {
+	case strings.Contains(v, "postgres"):
+		return "postgres"
+	case strings.Contains(v, "mysql"):
+		return "mysql"
+	case strings.Contains(v, "mariadb"):
+		return "mariadb"
+	case strings.Contains(v, "redis"):
+		return "redis"
+	case strings.Contains(v, "mongodb") || strings.Contains(v, "mongo"):
+		return "mongodb"
+	case strings.Contains(v, "rabbitmq"):
+		return "rabbitmq"
+	case strings.Contains(v, "kafka"):
+		return "kafka"
+	case strings.Contains(v, "zookeeper"):
+		return "zookeeper"
+	case strings.Contains(v, "elasticsearch"):
+		return "elasticsearch"
+	case strings.Contains(v, "opensearch"):
+		return "opensearch"
+	case strings.Contains(v, "clickhouse"):
+		return "clickhouse"
+	case strings.Contains(v, "nginx"):
+		return "nginx"
+	case strings.Contains(v, "minio"):
+		return "minio"
+	case strings.Contains(v, "memcached"):
+		return "memcached"
+	case strings.Contains(v, "sqlserver") || strings.Contains(v, "mssql"):
+		return "sqlserver"
+	default:
+		return ""
+	}
 }
 
 func isLaravelRoutesFile(path, base string) bool {
