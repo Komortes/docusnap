@@ -59,6 +59,8 @@ func Scan(root string) (model.Snapshot, error) {
 	routes := make([]model.Route, 0)
 	foundLaravelRoutes := false
 	foundExpressRoutes := false
+	foundGinRoutes := false
+	foundEchoRoutes := false
 
 	err = filepath.WalkDir(rootAbs, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -129,6 +131,14 @@ func Scan(root string) (model.Snapshot, error) {
 				foundExpressRoutes = true
 			}
 		}
+		if isGoRoutesFile(path) {
+			parsedRoutes, usedGin, usedEcho, err := parseGoRoutes(path)
+			if err == nil && len(parsedRoutes) > 0 {
+				routes = append(routes, parsedRoutes...)
+				foundGinRoutes = foundGinRoutes || usedGin
+				foundEchoRoutes = foundEchoRoutes || usedEcho
+			}
+		}
 
 		return nil
 	})
@@ -153,7 +163,13 @@ func Scan(root string) (model.Snapshot, error) {
 	if foundExpressRoutes {
 		frameworkSet["express"] = struct{}{}
 	}
-	if foundLaravelRoutes || foundExpressRoutes {
+	if foundGinRoutes {
+		frameworkSet["gin"] = struct{}{}
+	}
+	if foundEchoRoutes {
+		frameworkSet["echo"] = struct{}{}
+	}
+	if foundLaravelRoutes || foundExpressRoutes || foundGinRoutes || foundEchoRoutes {
 		frameworks = sortedSet(frameworkSet)
 	}
 
@@ -430,6 +446,10 @@ var (
 	laravelStringHandlerPattern = regexp.MustCompile(`Route::(?i)(get|post|put|patch|delete|options|any)\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"]`)
 	expressRoutePattern         = regexp.MustCompile(`\b(?:app|router)\.(get|post|put|patch|delete|options|head|all)\s*\(\s*['"\x60]([^'"\x60]+)['"\x60](?:\s*,\s*([A-Za-z0-9_$.]+))?`)
 	expressRouteChainPattern    = regexp.MustCompile(`\b(?:app|router)\.route\s*\(\s*['"\x60]([^'"\x60]+)['"\x60]\s*\)\.(get|post|put|patch|delete|options|head|all)\s*\(`)
+	goGinRootPattern            = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*gin\.(Default|New)\s*\(`)
+	goEchoRootPattern           = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*echo\.New\s*\(`)
+	goGroupPattern              = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*([A-Za-z_][A-Za-z0-9_]*)\.Group\(\s*["\x60]([^"\x60]*)["\x60]`)
+	goRoutePattern              = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\.(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD|Any|Match)\(\s*["\x60]([^"\x60]+)["\x60](?:\s*,\s*([A-Za-z_][A-Za-z0-9_./]*))?`)
 )
 
 func parseLaravelRoutes(path string) ([]model.Route, error) {
@@ -529,6 +549,106 @@ func parseExpressRoutes(path string) ([]model.Route, error) {
 	return routes, nil
 }
 
+func isGoRoutesFile(path string) bool {
+	if strings.ToLower(filepath.Ext(path)) != ".go" {
+		return false
+	}
+	base := strings.ToLower(filepath.Base(path))
+	return !strings.HasSuffix(base, "_test.go")
+}
+
+func parseGoRoutes(path string) ([]model.Route, bool, bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, false, false, err
+	}
+	defer file.Close()
+
+	frameworkByVar := map[string]string{}
+	groupPrefixByVar := map[string]string{}
+	routes := make([]model.Route, 0)
+	usedGin := false
+	usedEcho := false
+
+	s := bufio.NewScanner(file)
+	for s.Scan() {
+		line := strings.TrimSpace(s.Text())
+		if line == "" || strings.HasPrefix(line, "//") {
+			continue
+		}
+
+		if m := goGinRootPattern.FindStringSubmatch(line); len(m) == 3 {
+			frameworkByVar[m[1]] = "gin"
+			usedGin = true
+		}
+		if m := goEchoRootPattern.FindStringSubmatch(line); len(m) == 2 {
+			frameworkByVar[m[1]] = "echo"
+			usedEcho = true
+		}
+		if m := goGroupPattern.FindStringSubmatch(line); len(m) == 4 {
+			groupVar := m[1]
+			parentVar := m[2]
+			prefix := normalizeRoutePath(m[3])
+			parentPrefix := groupPrefixByVar[parentVar]
+			groupPrefixByVar[groupVar] = joinRoutePaths(parentPrefix, prefix)
+			if fw, ok := frameworkByVar[parentVar]; ok {
+				frameworkByVar[groupVar] = fw
+				if fw == "gin" {
+					usedGin = true
+				}
+				if fw == "echo" {
+					usedEcho = true
+				}
+			}
+		}
+
+		m := goRoutePattern.FindStringSubmatch(line)
+		if len(m) < 4 {
+			continue
+		}
+		receiver := m[1]
+		method := strings.ToUpper(m[2])
+		pathValue := normalizeRoutePath(m[3])
+		controller := "handler"
+		if len(m) >= 5 && m[4] != "" {
+			controller = m[4]
+		}
+		fullPath := joinRoutePaths(groupPrefixByVar[receiver], pathValue)
+		if fullPath == "" {
+			fullPath = pathValue
+		}
+
+		if fw, ok := frameworkByVar[receiver]; ok {
+			if fw == "gin" {
+				usedGin = true
+			}
+			if fw == "echo" {
+				usedEcho = true
+			}
+			routes = append(routes, model.Route{
+				Method:     method,
+				Path:       fullPath,
+				Controller: controller,
+			})
+			continue
+		}
+
+		// Fall back for common root variable names when assignment is in another file.
+		if receiver == "r" || receiver == "router" || receiver == "engine" {
+			routes = append(routes, model.Route{
+				Method:     method,
+				Path:       fullPath,
+				Controller: controller,
+			})
+		}
+	}
+	if err := s.Err(); err != nil {
+		return nil, false, false, err
+	}
+
+	return routes, usedGin, usedEcho, nil
+}
+
 func normalizeRoutePath(path string) string {
 	if path == "" {
 		return "/"
@@ -542,6 +662,22 @@ func normalizeRoutePath(path string) string {
 func shortLaravelController(v string) string {
 	parts := strings.Split(v, `\`)
 	return parts[len(parts)-1]
+}
+
+func joinRoutePaths(prefix, route string) string {
+	if prefix == "" {
+		return normalizeRoutePath(route)
+	}
+	if route == "" || route == "/" {
+		return normalizeRoutePath(prefix)
+	}
+
+	p := strings.TrimSuffix(prefix, "/")
+	r := strings.TrimPrefix(route, "/")
+	if p == "" {
+		return normalizeRoutePath(r)
+	}
+	return normalizeRoutePath(p + "/" + r)
 }
 
 func deduplicateRoutes(items []model.Route) []model.Route {

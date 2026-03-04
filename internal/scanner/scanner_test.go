@@ -126,3 +126,85 @@ app.get('/health', healthHandler);
 		t.Fatalf("expected express framework, got %#v", snap.Frameworks)
 	}
 }
+
+func TestParseGoRoutes(t *testing.T) {
+	tmp := t.TempDir()
+	routesFile := filepath.Join(tmp, "main.go")
+	content := `package main
+
+import (
+	"github.com/gin-gonic/gin"
+	"github.com/labstack/echo/v4"
+)
+
+func main() {
+	r := gin.Default()
+	api := r.Group("/api")
+	api.GET("/orders", listOrders)
+
+	e := echo.New()
+	v1 := e.Group("/v1")
+	v1.POST("/payments", createPayment)
+}
+`
+	if err := os.WriteFile(routesFile, []byte(content), 0o644); err != nil {
+		t.Fatalf("write main.go: %v", err)
+	}
+
+	routes, usedGin, usedEcho, err := parseGoRoutes(routesFile)
+	if err != nil {
+		t.Fatalf("parse go routes: %v", err)
+	}
+	if len(routes) != 2 {
+		t.Fatalf("expected 2 routes, got %d", len(routes))
+	}
+	if !usedGin || !usedEcho {
+		t.Fatalf("expected both gin and echo detected, got usedGin=%v usedEcho=%v", usedGin, usedEcho)
+	}
+	if routes[0].Method != "GET" || routes[0].Path != "/api/orders" || routes[0].Controller != "listOrders" {
+		t.Fatalf("unexpected first route: %#v", routes[0])
+	}
+	if routes[1].Method != "POST" || routes[1].Path != "/v1/payments" || routes[1].Controller != "createPayment" {
+		t.Fatalf("unexpected second route: %#v", routes[1])
+	}
+}
+
+func TestScanDetectsGinRoutesAsFramework(t *testing.T) {
+	tmp := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module example.com/app\n\ngo 1.25\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+
+	mainGo := `package main
+
+import "github.com/gin-gonic/gin"
+
+func main() {
+	r := gin.Default()
+	r.GET("/health", healthHandler)
+}
+`
+	if err := os.WriteFile(filepath.Join(tmp, "main.go"), []byte(mainGo), 0o644); err != nil {
+		t.Fatalf("write main.go: %v", err)
+	}
+
+	snap, err := Scan(tmp)
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+	if len(snap.Routes) != 1 || snap.Routes[0].Path != "/health" || snap.Routes[0].Method != "GET" {
+		t.Fatalf("unexpected routes: %#v", snap.Routes)
+	}
+
+	foundGin := false
+	for _, framework := range snap.Frameworks {
+		if framework == "gin" {
+			foundGin = true
+			break
+		}
+	}
+	if !foundGin {
+		t.Fatalf("expected gin framework, got %#v", snap.Frameworks)
+	}
+}
