@@ -57,6 +57,8 @@ func Scan(root string) (model.Snapshot, error) {
 	dependencies := map[string][]model.Dependency{}
 	frameworkSet := map[string]struct{}{}
 	routes := make([]model.Route, 0)
+	foundLaravelRoutes := false
+	foundExpressRoutes := false
 
 	err = filepath.WalkDir(rootAbs, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -117,6 +119,14 @@ func Scan(root string) (model.Snapshot, error) {
 			parsedRoutes, err := parseLaravelRoutes(path)
 			if err == nil && len(parsedRoutes) > 0 {
 				routes = append(routes, parsedRoutes...)
+				foundLaravelRoutes = true
+			}
+		}
+		if isExpressRoutesFile(path) {
+			parsedRoutes, err := parseExpressRoutes(path)
+			if err == nil && len(parsedRoutes) > 0 {
+				routes = append(routes, parsedRoutes...)
+				foundExpressRoutes = true
 			}
 		}
 
@@ -137,8 +147,13 @@ func Scan(root string) (model.Snapshot, error) {
 	frameworks := sortedSet(frameworkSet)
 	infrastructure := detectInfrastructureServices(configs)
 	routes = deduplicateRoutes(routes)
-	if len(routes) > 0 {
+	if foundLaravelRoutes {
 		frameworkSet["laravel"] = struct{}{}
+	}
+	if foundExpressRoutes {
+		frameworkSet["express"] = struct{}{}
+	}
+	if foundLaravelRoutes || foundExpressRoutes {
 		frameworks = sortedSet(frameworkSet)
 	}
 
@@ -413,6 +428,8 @@ func isLaravelRoutesFile(path, base string) bool {
 var (
 	laravelClassHandlerPattern  = regexp.MustCompile(`Route::(?i)(get|post|put|patch|delete|options|any)\s*\(\s*['"]([^'"]+)['"]\s*,\s*\[\s*([A-Za-z0-9_\\]+)::class\s*,\s*['"]([A-Za-z0-9_]+)['"]\s*\]`)
 	laravelStringHandlerPattern = regexp.MustCompile(`Route::(?i)(get|post|put|patch|delete|options|any)\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"]`)
+	expressRoutePattern         = regexp.MustCompile(`\b(?:app|router)\.(get|post|put|patch|delete|options|head|all)\s*\(\s*['"\x60]([^'"\x60]+)['"\x60](?:\s*,\s*([A-Za-z0-9_$.]+))?`)
+	expressRouteChainPattern    = regexp.MustCompile(`\b(?:app|router)\.route\s*\(\s*['"\x60]([^'"\x60]+)['"\x60]\s*\)\.(get|post|put|patch|delete|options|head|all)\s*\(`)
 )
 
 func parseLaravelRoutes(path string) ([]model.Route, error) {
@@ -446,6 +463,62 @@ func parseLaravelRoutes(path string) ([]model.Route, error) {
 				Method:     strings.ToUpper(m[1]),
 				Path:       normalizeRoutePath(m[2]),
 				Controller: m[3],
+			})
+		}
+	}
+	if err := s.Err(); err != nil {
+		return nil, err
+	}
+
+	return routes, nil
+}
+
+func isExpressRoutesFile(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".js", ".mjs", ".cjs", ".ts":
+	default:
+		return false
+	}
+
+	base := strings.ToLower(filepath.Base(path))
+	if strings.Contains(base, ".min.") {
+		return false
+	}
+	return true
+}
+
+func parseExpressRoutes(path string) ([]model.Route, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	routes := make([]model.Route, 0)
+	s := bufio.NewScanner(file)
+	for s.Scan() {
+		line := strings.TrimSpace(s.Text())
+		if line == "" || strings.HasPrefix(line, "//") {
+			continue
+		}
+
+		if m := expressRoutePattern.FindStringSubmatch(line); len(m) >= 3 {
+			controller := "handler"
+			if len(m) >= 4 && m[3] != "" {
+				controller = m[3]
+			}
+			routes = append(routes, model.Route{
+				Method:     strings.ToUpper(m[1]),
+				Path:       normalizeRoutePath(m[2]),
+				Controller: controller,
+			})
+		}
+		if m := expressRouteChainPattern.FindStringSubmatch(line); len(m) == 3 {
+			routes = append(routes, model.Route{
+				Method:     strings.ToUpper(m[2]),
+				Path:       normalizeRoutePath(m[1]),
+				Controller: "handler",
 			})
 		}
 	}

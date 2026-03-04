@@ -63,3 +63,66 @@ Route::post('/api/orders', 'OrderController@store');
 		t.Fatalf("unexpected second route: %#v", routes[1])
 	}
 }
+
+func TestParseExpressRoutes(t *testing.T) {
+	tmp := t.TempDir()
+	routesFile := filepath.Join(tmp, "server.js")
+	content := `const express = require('express');
+const app = express();
+app.get('/health', healthHandler);
+router.post('/api/orders', ordersController.create);
+router.route('/api/users').delete(removeUser);
+`
+	if err := os.WriteFile(routesFile, []byte(content), 0o644); err != nil {
+		t.Fatalf("write routes: %v", err)
+	}
+
+	routes, err := parseExpressRoutes(routesFile)
+	if err != nil {
+		t.Fatalf("parse routes: %v", err)
+	}
+	if len(routes) != 3 {
+		t.Fatalf("expected 3 routes, got %d", len(routes))
+	}
+	if routes[0].Method != "GET" || routes[0].Path != "/health" || routes[0].Controller != "healthHandler" {
+		t.Fatalf("unexpected first route: %#v", routes[0])
+	}
+	if routes[1].Method != "POST" || routes[1].Path != "/api/orders" || routes[1].Controller != "ordersController.create" {
+		t.Fatalf("unexpected second route: %#v", routes[1])
+	}
+	if routes[2].Method != "DELETE" || routes[2].Path != "/api/users" {
+		t.Fatalf("unexpected third route: %#v", routes[2])
+	}
+}
+
+func TestScanDetectsExpressRoutesAsFramework(t *testing.T) {
+	tmp := t.TempDir()
+
+	serverPath := filepath.Join(tmp, "server.js")
+	content := `const express = require('express');
+const app = express();
+app.get('/health', healthHandler);
+`
+	if err := os.WriteFile(serverPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write server.js: %v", err)
+	}
+
+	snap, err := Scan(tmp)
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+
+	if len(snap.Routes) != 1 || snap.Routes[0].Path != "/health" || snap.Routes[0].Method != "GET" {
+		t.Fatalf("unexpected routes: %#v", snap.Routes)
+	}
+	foundExpress := false
+	for _, framework := range snap.Frameworks {
+		if framework == "express" {
+			foundExpress = true
+			break
+		}
+	}
+	if !foundExpress {
+		t.Fatalf("expected express framework, got %#v", snap.Frameworks)
+	}
+}
