@@ -1,0 +1,26 @@
+# Architecture
+
+## Layer Diagram
+
+~~~mermaid
+graph TD
+Controllers --> Services
+Services --> Repositories
+Repositories --> Database
+~~~
+
+## Technology View
+{{- if .Frameworks }}
+{{- range .Frameworks }}
+- Framework: {{ . }}
+{{- end }}
+{{- else }}
+- Framework: n/a
+{{- end }}
+{{- if .Infrastructure }}
+{{- range .Infrastructure }}
+- Infrastructure: {{ . }}
+{{- end }}
+{{- else }}
+- Infrastructure: n/a
+{{- end }}

@@ -1,0 +1,20 @@
+# Dependencies
+
+{{- if .DependencyManagers }}
+{{- range .DependencyManagers }}
+## {{ . }}
+{{- $deps := index $.Dependencies . }}
+{{- if $deps }}
+| Name | Version |
+|---|---|
+{{- range $deps }}
+| {{ .Name }} | {{ .Version }} |
+{{- end }}
+{{- else }}
+No dependencies detected.
+{{- end }}
+
+{{- end }}
+{{- else }}
+No dependencies detected.
+{{- end }}

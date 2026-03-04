@@ -1,0 +1,11 @@
+# API Endpoints
+
+{{- if .Routes }}
+| Method | Path | Controller |
+|---|---|---|
+{{- range .Routes }}
+| {{ .Method }} | {{ .Path }} | {{ .Controller }} |
+{{- end }}
+{{- else }}
+No endpoints detected for the current project.
+{{- end }}
