@@ -35,6 +35,16 @@ func RenderSummary(snap model.Snapshot) string {
 		fmt.Fprintf(&b, "\n")
 	}
 
+	fmt.Fprintf(&b, "Package managers\n")
+	if len(snap.PackageManagers) == 0 {
+		fmt.Fprintf(&b, "- n/a\n\n")
+	} else {
+		for _, manager := range snap.PackageManagers {
+			fmt.Fprintf(&b, "- %s\n", manager)
+		}
+		fmt.Fprintf(&b, "\n")
+	}
+
 	fmt.Fprintf(&b, "Dependencies\n")
 	managers := make([]string, 0, len(snap.Dependencies))
 	for manager := range snap.Dependencies {
@@ -44,13 +54,30 @@ func RenderSummary(snap model.Snapshot) string {
 	if len(managers) == 0 {
 		fmt.Fprintf(&b, "- n/a\n\n")
 	} else {
+		totalDeps := 0
 		for _, manager := range managers {
-			fmt.Fprintf(&b, "- %s: %d\n", manager, len(snap.Dependencies[manager]))
+			count := len(snap.Dependencies[manager])
+			totalDeps += count
+			fmt.Fprintf(&b, "- %s: %d\n", manager, count)
 		}
+		fmt.Fprintf(&b, "- total: %d\n", totalDeps)
 		fmt.Fprintf(&b, "\n")
 	}
 
-	fmt.Fprintf(&b, "API endpoints\n- %d routes detected\n\n", len(snap.Routes))
+	fmt.Fprintf(&b, "API endpoints\n")
+	fmt.Fprintf(&b, "- %d routes detected\n", len(snap.Routes))
+	methodCount := routeMethodCount(snap.Routes)
+	if len(methodCount) > 0 {
+		methods := make([]string, 0, len(methodCount))
+		for method := range methodCount {
+			methods = append(methods, method)
+		}
+		sort.Strings(methods)
+		for _, method := range methods {
+			fmt.Fprintf(&b, "- %s: %d\n", method, methodCount[method])
+		}
+	}
+	fmt.Fprintf(&b, "\n")
 
 	fmt.Fprintf(&b, "Services\n")
 	if len(snap.Infrastructure) == 0 {
@@ -62,4 +89,16 @@ func RenderSummary(snap model.Snapshot) string {
 	}
 
 	return b.String()
+}
+
+func routeMethodCount(routes []model.Route) map[string]int {
+	out := map[string]int{}
+	for _, route := range routes {
+		method := strings.ToUpper(strings.TrimSpace(route.Method))
+		if method == "" {
+			method = "UNKNOWN"
+		}
+		out[method]++
+	}
+	return out
 }
