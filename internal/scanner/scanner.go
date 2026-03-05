@@ -63,6 +63,7 @@ func Scan(root string) (model.Snapshot, error) {
 	foundExpressRoutes := false
 	foundGinRoutes := false
 	foundEchoRoutes := false
+	foundFastAPIRoutes := false
 
 	err = filepath.WalkDir(rootAbs, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -156,6 +157,13 @@ func Scan(root string) (model.Snapshot, error) {
 				foundEchoRoutes = foundEchoRoutes || usedEcho
 			}
 		}
+		if isPythonRoutesFile(path) {
+			parsedRoutes, usedFastAPI, err := parseFastAPIRoutes(path)
+			if err == nil && len(parsedRoutes) > 0 {
+				routes = append(routes, parsedRoutes...)
+				foundFastAPIRoutes = foundFastAPIRoutes || usedFastAPI
+			}
+		}
 
 		return nil
 	})
@@ -186,7 +194,10 @@ func Scan(root string) (model.Snapshot, error) {
 	if foundEchoRoutes {
 		frameworkSet["echo"] = struct{}{}
 	}
-	if foundLaravelRoutes || foundExpressRoutes || foundGinRoutes || foundEchoRoutes {
+	if foundFastAPIRoutes {
+		frameworkSet["fastapi"] = struct{}{}
+	}
+	if foundLaravelRoutes || foundExpressRoutes || foundGinRoutes || foundEchoRoutes || foundFastAPIRoutes {
 		frameworks = sortedSet(frameworkSet)
 	}
 
@@ -754,6 +765,10 @@ var (
 	laravelStringHandlerPattern = regexp.MustCompile(`Route::(?i)(get|post|put|patch|delete|options|any)\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"]`)
 	expressRoutePattern         = regexp.MustCompile(`\b(?:app|router)\.(get|post|put|patch|delete|options|head|all)\s*\(\s*['"\x60]([^'"\x60]+)['"\x60](?:\s*,\s*([A-Za-z0-9_$.]+))?`)
 	expressRouteChainPattern    = regexp.MustCompile(`\b(?:app|router)\.route\s*\(\s*['"\x60]([^'"\x60]+)['"\x60]\s*\)\.(get|post|put|patch|delete|options|head|all)\s*\(`)
+	fastAPIRouterDeclPattern    = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*APIRouter\((.*)\)`)
+	fastAPIPrefixPattern        = regexp.MustCompile(`prefix\s*=\s*["']([^"']+)["']`)
+	fastAPIDecoratorPattern     = regexp.MustCompile(`^@([A-Za-z_][A-Za-z0-9_]*)\.(get|post|put|patch|delete|options|head)\(\s*["']([^"']+)["']`)
+	fastAPIDefPattern           = regexp.MustCompile(`^def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
 	goGinRootPattern            = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*gin\.(Default|New)\s*\(`)
 	goEchoRootPattern           = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*echo\.New\s*\(`)
 	goGroupPattern              = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*([A-Za-z_][A-Za-z0-9_]*)\.Group\(\s*["\x60]([^"\x60]*)["\x60]`)
@@ -855,6 +870,87 @@ func parseExpressRoutes(path string) ([]model.Route, error) {
 	}
 
 	return routes, nil
+}
+
+func isPythonRoutesFile(path string) bool {
+	if strings.ToLower(filepath.Ext(path)) != ".py" {
+		return false
+	}
+	base := strings.ToLower(filepath.Base(path))
+	if strings.HasSuffix(base, "_test.py") || strings.HasPrefix(base, "test_") {
+		return false
+	}
+	return true
+}
+
+func parseFastAPIRoutes(path string) ([]model.Route, bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, false, err
+	}
+	defer file.Close()
+
+	routerPrefixByVar := map[string]string{}
+	routes := make([]model.Route, 0)
+	usedFastAPI := false
+
+	pendingReceiver := ""
+	pendingMethod := ""
+	pendingPath := ""
+
+	s := bufio.NewScanner(file)
+	for s.Scan() {
+		line := strings.TrimSpace(s.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		if m := fastAPIRouterDeclPattern.FindStringSubmatch(line); len(m) == 3 {
+			prefix := ""
+			if pm := fastAPIPrefixPattern.FindStringSubmatch(m[2]); len(pm) == 2 {
+				prefix = normalizeRoutePath(pm[1])
+			}
+			routerPrefixByVar[m[1]] = prefix
+			usedFastAPI = true
+		}
+
+		if m := fastAPIDecoratorPattern.FindStringSubmatch(line); len(m) == 4 {
+			pendingReceiver = m[1]
+			pendingMethod = strings.ToUpper(m[2])
+			pendingPath = normalizeRoutePath(m[3])
+			usedFastAPI = true
+			continue
+		}
+
+		if pendingMethod != "" {
+			if m := fastAPIDefPattern.FindStringSubmatch(line); len(m) == 2 {
+				fullPath := pendingPath
+				if prefix, ok := routerPrefixByVar[pendingReceiver]; ok && prefix != "" {
+					fullPath = joinRoutePaths(prefix, pendingPath)
+				}
+				routes = append(routes, model.Route{
+					Method:     pendingMethod,
+					Path:       fullPath,
+					Controller: m[1],
+				})
+				pendingReceiver = ""
+				pendingMethod = ""
+				pendingPath = ""
+				continue
+			}
+
+			if strings.HasPrefix(line, "@") {
+				pendingReceiver = ""
+				pendingMethod = ""
+				pendingPath = ""
+			}
+		}
+	}
+	if err := s.Err(); err != nil {
+		return nil, false, err
+	}
+
+	return routes, usedFastAPI, nil
 }
 
 func isGoRoutesFile(path string) bool {

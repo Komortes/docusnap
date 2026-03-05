@@ -127,6 +127,71 @@ app.get('/health', healthHandler);
 	}
 }
 
+func TestParseFastAPIRoutes(t *testing.T) {
+	tmp := t.TempDir()
+	pyPath := filepath.Join(tmp, "main.py")
+	content := `from fastapi import FastAPI, APIRouter
+
+app = FastAPI()
+router = APIRouter(prefix="/api")
+
+@app.get("/health")
+def health():
+    return {"ok": True}
+
+@router.post("/orders")
+def create_order():
+    return {"id": 1}
+`
+	if err := os.WriteFile(pyPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write main.py: %v", err)
+	}
+
+	routes, usedFastAPI, err := parseFastAPIRoutes(pyPath)
+	if err != nil {
+		t.Fatalf("parse fastapi routes: %v", err)
+	}
+	if !usedFastAPI {
+		t.Fatalf("expected fastapi usage detected")
+	}
+	if len(routes) != 2 {
+		t.Fatalf("expected 2 routes, got %d (%#v)", len(routes), routes)
+	}
+	if routes[0].Method != "GET" || routes[0].Path != "/health" || routes[0].Controller != "health" {
+		t.Fatalf("unexpected first route: %#v", routes[0])
+	}
+	if routes[1].Method != "POST" || routes[1].Path != "/api/orders" || routes[1].Controller != "create_order" {
+		t.Fatalf("unexpected second route: %#v", routes[1])
+	}
+}
+
+func TestScanDetectsFastAPIRoutesAsFramework(t *testing.T) {
+	tmp := t.TempDir()
+	pyPath := filepath.Join(tmp, "api.py")
+	content := `from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/health")
+def health():
+    return {"ok": True}
+`
+	if err := os.WriteFile(pyPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write api.py: %v", err)
+	}
+
+	snap, err := Scan(tmp)
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+	if len(snap.Routes) != 1 || snap.Routes[0].Method != "GET" || snap.Routes[0].Path != "/health" {
+		t.Fatalf("unexpected routes: %#v", snap.Routes)
+	}
+	if !containsString(snap.Frameworks, "fastapi") {
+		t.Fatalf("expected fastapi framework, got %#v", snap.Frameworks)
+	}
+}
+
 func TestParseGoRoutes(t *testing.T) {
 	tmp := t.TempDir()
 	routesFile := filepath.Join(tmp, "main.go")
