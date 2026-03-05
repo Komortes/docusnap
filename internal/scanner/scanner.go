@@ -18,6 +18,8 @@ var techMarkers = []string{
 	"package.json",
 	"go.mod",
 	"Cargo.toml",
+	"requirements.txt",
+	"pyproject.toml",
 }
 
 var configMarkers = []string{
@@ -105,6 +107,21 @@ func Scan(root string) (model.Snapshot, error) {
 				deps, err := parseCargoToml(path)
 				if err == nil && len(deps) > 0 {
 					dependencies["cargo"] = append(dependencies["cargo"], deps...)
+				}
+			case "requirements.txt":
+				deps, err := parseRequirementsTxt(path)
+				if err == nil && len(deps) > 0 {
+					dependencies["pip"] = append(dependencies["pip"], deps...)
+				}
+			case "pyproject.toml":
+				projectDeps, poetryDeps, err := parsePyProjectToml(path)
+				if err == nil {
+					if len(projectDeps) > 0 {
+						dependencies["pip"] = append(dependencies["pip"], projectDeps...)
+					}
+					if len(poetryDeps) > 0 {
+						dependencies["poetry"] = append(dependencies["poetry"], poetryDeps...)
+					}
 				}
 			}
 		}
@@ -207,6 +224,14 @@ func detectLanguagesAndManagers(found []string) ([]string, []string) {
 		if strings.HasSuffix(file, "Cargo.toml") {
 			languageSet["rust"] = struct{}{}
 			managerSet["cargo"] = struct{}{}
+		}
+		if strings.HasSuffix(strings.ToLower(file), "requirements.txt") {
+			languageSet["python"] = struct{}{}
+			managerSet["pip"] = struct{}{}
+		}
+		if strings.HasSuffix(strings.ToLower(file), "pyproject.toml") {
+			languageSet["python"] = struct{}{}
+			managerSet["poetry"] = struct{}{}
 		}
 	}
 
@@ -371,6 +396,150 @@ func parseCargoToml(path string) ([]model.Dependency, error) {
 	return uniqueDependencies(deps), nil
 }
 
+func parseRequirementsTxt(path string) ([]model.Dependency, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	deps := make([]model.Dependency, 0)
+	s := bufio.NewScanner(file)
+	for s.Scan() {
+		line := strings.TrimSpace(s.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "-r ") || strings.HasPrefix(line, "--requirement ") {
+			continue
+		}
+		line = stripInlineComment(line)
+		if line == "" {
+			continue
+		}
+
+		name, version := splitPythonRequirement(line)
+		if name == "" {
+			continue
+		}
+		deps = append(deps, model.Dependency{Name: strings.ToLower(name), Version: version})
+	}
+	if err := s.Err(); err != nil {
+		return nil, err
+	}
+
+	return uniqueDependencies(deps), nil
+}
+
+func parsePyProjectToml(path string) ([]model.Dependency, []model.Dependency, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer file.Close()
+
+	projectDeps := make([]model.Dependency, 0)
+	poetryDeps := make([]model.Dependency, 0)
+
+	currentSection := ""
+	inProjectDepsArray := false
+
+	s := bufio.NewScanner(file)
+	for s.Scan() {
+		line := strings.TrimSpace(s.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = stripInlineComment(line)
+		if line == "" {
+			continue
+		}
+
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			currentSection = strings.Trim(line, "[]")
+			inProjectDepsArray = false
+			continue
+		}
+
+		if currentSection == "project" {
+			if strings.HasPrefix(line, "dependencies") {
+				inProjectDepsArray = strings.Contains(line, "[") && !strings.Contains(line, "]")
+				for _, dep := range parseQuotedDependencies(line) {
+					name, version := splitPythonRequirement(dep)
+					if name != "" {
+						projectDeps = append(projectDeps, model.Dependency{Name: strings.ToLower(name), Version: version})
+					}
+				}
+				continue
+			}
+			if inProjectDepsArray {
+				for _, dep := range parseQuotedDependencies(line) {
+					name, version := splitPythonRequirement(dep)
+					if name != "" {
+						projectDeps = append(projectDeps, model.Dependency{Name: strings.ToLower(name), Version: version})
+					}
+				}
+				if strings.Contains(line, "]") {
+					inProjectDepsArray = false
+				}
+				continue
+			}
+		}
+
+		if currentSection == "tool.poetry.dependencies" {
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			name := strings.TrimSpace(parts[0])
+			if strings.EqualFold(name, "python") || name == "" {
+				continue
+			}
+			version := strings.TrimSpace(parts[1])
+			version = strings.Trim(version, `"'`)
+			poetryDeps = append(poetryDeps, model.Dependency{Name: strings.ToLower(name), Version: version})
+		}
+	}
+	if err := s.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	return uniqueDependencies(projectDeps), uniqueDependencies(poetryDeps), nil
+}
+
+func splitPythonRequirement(line string) (string, string) {
+	i := strings.IndexAny(line, "<>!=~[ ")
+	if i == -1 {
+		return strings.TrimSpace(line), ""
+	}
+	name := strings.TrimSpace(line[:i])
+	version := strings.TrimSpace(line[i:])
+	return name, version
+}
+
+func stripInlineComment(line string) string {
+	i := strings.Index(line, "#")
+	if i == -1 {
+		return strings.TrimSpace(line)
+	}
+	return strings.TrimSpace(line[:i])
+}
+
+func parseQuotedDependencies(line string) []string {
+	out := make([]string, 0)
+	for _, match := range quotedStringPattern.FindAllStringSubmatch(line, -1) {
+		if len(match) < 3 {
+			continue
+		}
+		if match[1] != "" {
+			out = append(out, match[1])
+		} else if match[2] != "" {
+			out = append(out, match[2])
+		}
+	}
+	return out
+}
+
 func uniqueDependencies(items []model.Dependency) []model.Dependency {
 	seen := make(map[string]string, len(items))
 	for _, item := range items {
@@ -415,6 +584,12 @@ func detectFrameworksFromDependencies(manager string, deps []model.Dependency, s
 			set["gin"] = struct{}{}
 		case manager == "go" && n == "github.com/labstack/echo/v4":
 			set["echo"] = struct{}{}
+		case (manager == "pip" || manager == "poetry") && n == "django":
+			set["django"] = struct{}{}
+		case (manager == "pip" || manager == "poetry") && n == "fastapi":
+			set["fastapi"] = struct{}{}
+		case (manager == "pip" || manager == "poetry") && n == "flask":
+			set["flask"] = struct{}{}
 		}
 	}
 }
@@ -574,6 +749,7 @@ func isLaravelRoutesFile(path, base string) bool {
 }
 
 var (
+	quotedStringPattern         = regexp.MustCompile(`["]([^"]+)["]|[']([^']+)[']`)
 	laravelClassHandlerPattern  = regexp.MustCompile(`Route::(?i)(get|post|put|patch|delete|options|any)\s*\(\s*['"]([^'"]+)['"]\s*,\s*\[\s*([A-Za-z0-9_\\]+)::class\s*,\s*['"]([A-Za-z0-9_]+)['"]\s*\]`)
 	laravelStringHandlerPattern = regexp.MustCompile(`Route::(?i)(get|post|put|patch|delete|options|any)\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"]`)
 	expressRoutePattern         = regexp.MustCompile(`\b(?:app|router)\.(get|post|put|patch|delete|options|head|all)\s*\(\s*['"\x60]([^'"\x60]+)['"\x60](?:\s*,\s*([A-Za-z0-9_$.]+))?`)

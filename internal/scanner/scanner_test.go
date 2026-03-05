@@ -259,6 +259,73 @@ func TestScanDetectsComposeInfrastructureServices(t *testing.T) {
 	}
 }
 
+func TestParseRequirementsTxt(t *testing.T) {
+	tmp := t.TempDir()
+	reqPath := filepath.Join(tmp, "requirements.txt")
+	content := `# app deps
+fastapi>=0.115.0
+uvicorn[standard]==0.30.0
+django==5.1.1 # inline comment
+-r requirements-dev.txt
+`
+	if err := os.WriteFile(reqPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write requirements.txt: %v", err)
+	}
+
+	deps, err := parseRequirementsTxt(reqPath)
+	if err != nil {
+		t.Fatalf("parse requirements: %v", err)
+	}
+	if len(deps) != 3 {
+		t.Fatalf("expected 3 dependencies, got %d (%#v)", len(deps), deps)
+	}
+	if deps[0].Name != "django" || deps[1].Name != "fastapi" || deps[2].Name != "uvicorn" {
+		t.Fatalf("unexpected dependencies: %#v", deps)
+	}
+}
+
+func TestScanDetectsPythonSignals(t *testing.T) {
+	tmp := t.TempDir()
+
+	requirements := `fastapi>=0.115.0
+`
+	if err := os.WriteFile(filepath.Join(tmp, "requirements.txt"), []byte(requirements), 0o644); err != nil {
+		t.Fatalf("write requirements.txt: %v", err)
+	}
+
+	pyproject := `[project]
+name = "demo"
+dependencies = [
+  "django>=5.1.0",
+]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+flask = "^3.0.0"
+`
+	if err := os.WriteFile(filepath.Join(tmp, "pyproject.toml"), []byte(pyproject), 0o644); err != nil {
+		t.Fatalf("write pyproject.toml: %v", err)
+	}
+
+	snap, err := Scan(tmp)
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+
+	if !containsString(snap.Languages, "python") {
+		t.Fatalf("expected python language, got %#v", snap.Languages)
+	}
+	if !containsString(snap.PackageManagers, "pip") || !containsString(snap.PackageManagers, "poetry") {
+		t.Fatalf("expected pip+poetry managers, got %#v", snap.PackageManagers)
+	}
+	if !containsString(snap.Frameworks, "fastapi") || !containsString(snap.Frameworks, "django") || !containsString(snap.Frameworks, "flask") {
+		t.Fatalf("expected python frameworks, got %#v", snap.Frameworks)
+	}
+	if len(snap.Dependencies["pip"]) == 0 || len(snap.Dependencies["poetry"]) == 0 {
+		t.Fatalf("expected pip and poetry dependencies, got %#v", snap.Dependencies)
+	}
+}
+
 func containsString(items []string, target string) bool {
 	for _, item := range items {
 		if item == target {
