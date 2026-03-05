@@ -77,12 +77,13 @@ func runAnalyze(args []string) {
 func runDiff(args []string) {
 	fs := flag.NewFlagSet("diff", flag.ExitOnError)
 	jsonOut := fs.Bool("json", false, "Output as JSON")
+	markdownOut := fs.String("markdown-out", "", "Write markdown report to file")
 	pretty := fs.Bool("pretty", true, "Pretty JSON output")
 	_ = fs.Parse(args)
 
 	rest := fs.Args()
 	if len(rest) != 2 {
-		fmt.Fprintln(os.Stderr, "usage: docusnap diff [--json] old.json new.json")
+		fmt.Fprintln(os.Stderr, "usage: docusnap diff [--json] [--markdown-out changes.md] old.json new.json")
 		os.Exit(1)
 	}
 
@@ -96,6 +97,12 @@ func runDiff(args []string) {
 	}
 
 	result := diff.Compare(oldSnap, newSnap)
+	if *markdownOut != "" {
+		if err := writeTextFile(*markdownOut, result.RenderMarkdown()); err != nil {
+			exitErr("write markdown report", err)
+		}
+		fmt.Printf("markdown report written: %s\n", *markdownOut)
+	}
 	if *jsonOut {
 		printJSON(result, *pretty)
 		return
@@ -218,15 +225,25 @@ func printHelp() {
 Usage:
   docusnap scan --path . [--out snapshot.json]
   docusnap analyze --path .
-  docusnap diff [--json] old.json new.json
+  docusnap diff [--json] [--markdown-out changes.md] old.json new.json
   docusnap render --snapshot snapshot.json --out docs
   docusnap run --path .
 
 Examples:
   docusnap scan --path . --out snapshot.json
   docusnap analyze --path .
-  docusnap diff old.json new.json
+  docusnap diff --markdown-out docs/changes.md old.json new.json
   docusnap render --snapshot snapshot.json --out docs
   docusnap run --path .
 `)
+}
+
+func writeTextFile(path string, content string) error {
+	dir := filepath.Dir(path)
+	if dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	return os.WriteFile(path, []byte(content), 0o644)
 }

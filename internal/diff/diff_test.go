@@ -84,3 +84,27 @@ func TestRenderTextIncludesNewSections(t *testing.T) {
 		t.Fatalf("expected infrastructure section in output, got:\n%s", out)
 	}
 }
+
+func TestRenderMarkdownIncludesSections(t *testing.T) {
+	result := Result{
+		AddedLanguages:      []string{"go"},
+		AddedInfrastructure: []string{"redis"},
+		AddedRoutes: []model.Route{
+			{Method: "GET", Path: "/health", Controller: "healthHandler"},
+		},
+	}
+
+	out := result.RenderMarkdown()
+	if !strings.Contains(out, "# Snapshot Changes") {
+		t.Fatalf("expected markdown title, got:\n%s", out)
+	}
+	if !strings.Contains(out, "## Languages") || !strings.Contains(out, "`go`") {
+		t.Fatalf("expected languages section, got:\n%s", out)
+	}
+	if !strings.Contains(out, "## Endpoints") || !strings.Contains(out, "GET /health") {
+		t.Fatalf("expected endpoints section, got:\n%s", out)
+	}
+	if !strings.Contains(out, "## Infrastructure services") || !strings.Contains(out, "`redis`") {
+		t.Fatalf("expected infrastructure section, got:\n%s", out)
+	}
+}

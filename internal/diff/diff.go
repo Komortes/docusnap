@@ -145,6 +145,45 @@ func (r Result) RenderText() string {
 	return strings.TrimSpace(b.String())
 }
 
+func (r Result) RenderMarkdown() string {
+	var b strings.Builder
+	b.WriteString("# Snapshot Changes\n\n")
+
+	if !r.HasChanges() {
+		b.WriteString("No changes detected.\n")
+		return b.String()
+	}
+
+	writeMarkdownStringSection(&b, "Languages", r.AddedLanguages, r.RemovedLanguages)
+	writeMarkdownStringSection(&b, "Package managers", r.AddedPackageManagers, r.RemovedPackageManagers)
+
+	if hasDependencyChanges(r.AddedDependencies, r.RemovedDependencies) {
+		b.WriteString("## Dependencies\n")
+		for _, line := range dependencyLines("+", r.AddedDependencies) {
+			b.WriteString("- " + line + "\n")
+		}
+		for _, line := range dependencyLines("-", r.RemovedDependencies) {
+			b.WriteString("- " + line + "\n")
+		}
+		b.WriteString("\n")
+	}
+
+	if len(r.AddedRoutes) > 0 || len(r.RemovedRoutes) > 0 {
+		b.WriteString("## Endpoints\n")
+		for _, route := range r.AddedRoutes {
+			b.WriteString(fmt.Sprintf("- + `%s %s` (%s)\n", route.Method, route.Path, route.Controller))
+		}
+		for _, route := range r.RemovedRoutes {
+			b.WriteString(fmt.Sprintf("- - `%s %s` (%s)\n", route.Method, route.Path, route.Controller))
+		}
+		b.WriteString("\n")
+	}
+
+	writeMarkdownStringSection(&b, "Frameworks", r.AddedFrameworks, r.RemovedFrameworks)
+	writeMarkdownStringSection(&b, "Infrastructure services", r.AddedInfrastructure, r.RemovedInfrastructure)
+	return strings.TrimSpace(b.String()) + "\n"
+}
+
 func addedStrings(oldItems, newItems []string) []string {
 	oldSet := map[string]struct{}{}
 	for _, item := range oldItems {
@@ -264,4 +303,18 @@ func sortDependencies(items []model.Dependency) {
 		}
 		return items[i].Name < items[j].Name
 	})
+}
+
+func writeMarkdownStringSection(b *strings.Builder, title string, added, removed []string) {
+	if len(added) == 0 && len(removed) == 0 {
+		return
+	}
+	b.WriteString("## " + title + "\n")
+	for _, item := range added {
+		b.WriteString("- + `" + item + "`\n")
+	}
+	for _, item := range removed {
+		b.WriteString("- - `" + item + "`\n")
+	}
+	b.WriteString("\n")
 }
