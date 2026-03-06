@@ -522,6 +522,70 @@ urlpatterns = [
 	}
 }
 
+func TestScanDetectsKubernetesEnvTerraformInfrastructure(t *testing.T) {
+	tmp := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(tmp, "k8s"), 0o755); err != nil {
+		t.Fatalf("mkdir k8s: %v", err)
+	}
+	k8sManifest := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  template:
+    spec:
+      containers:
+      - name: db
+        image: postgres:16
+`
+	if err := os.WriteFile(filepath.Join(tmp, "k8s", "deployment.yaml"), []byte(k8sManifest), 0o644); err != nil {
+		t.Fatalf("write k8s deployment: %v", err)
+	}
+
+	envContent := `DATABASE_URL=postgres://localhost:5432/app
+REDIS_URL=redis://localhost:6379/0
+`
+	if err := os.WriteFile(filepath.Join(tmp, ".env"), []byte(envContent), 0o644); err != nil {
+		t.Fatalf("write .env: %v", err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(tmp, "infra"), 0o755); err != nil {
+		t.Fatalf("mkdir infra: %v", err)
+	}
+	tfContent := `terraform {
+  required_providers {
+    aws = { source = "hashicorp/aws" }
+  }
+}
+
+resource "aws_eks_cluster" "main" {}
+resource "aws_elasticache_cluster" "cache" {}
+`
+	if err := os.WriteFile(filepath.Join(tmp, "infra", "main.tf"), []byte(tfContent), 0o644); err != nil {
+		t.Fatalf("write main.tf: %v", err)
+	}
+
+	snap, err := Scan(tmp)
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+
+	requiredInfra := []string{"kubernetes", "postgres", "redis", "terraform"}
+	for _, infra := range requiredInfra {
+		if !containsString(snap.Infrastructure, infra) {
+			t.Fatalf("expected infrastructure %q, got %#v", infra, snap.Infrastructure)
+		}
+	}
+
+	requiredConfigs := []string{".env", "infra/main.tf", "k8s/deployment.yaml"}
+	for _, cfg := range requiredConfigs {
+		if !containsString(snap.ConfigFiles, cfg) {
+			t.Fatalf("expected config file %q, got %#v", cfg, snap.ConfigFiles)
+		}
+	}
+}
+
 func containsString(items []string, target string) bool {
 	for _, item := range items {
 		if item == target {

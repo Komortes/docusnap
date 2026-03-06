@@ -136,6 +136,13 @@ func Scan(root string) (model.Snapshot, error) {
 			}
 			foundConfigFiles[rel] = struct{}{}
 		}
+		if isEnvConfigFile(base) || isTerraformConfigFile(base) || isKubernetesConfigCandidate(path, base) {
+			rel, relErr := filepath.Rel(rootAbs, path)
+			if relErr != nil {
+				rel = base
+			}
+			foundConfigFiles[rel] = struct{}{}
+		}
 
 		if isLaravelRoutesFile(path, base) {
 			parsedRoutes, err := parseLaravelRoutes(path)
@@ -684,23 +691,81 @@ func detectInfrastructureServices(rootAbs string, configs []string) []string {
 	set := map[string]struct{}{}
 	for _, cfg := range configs {
 		lower := strings.ToLower(cfg)
+		configPath := filepath.Join(rootAbs, cfg)
+
 		if strings.Contains(lower, "docker-compose") || strings.Contains(lower, "dockerfile") {
 			set["docker"] = struct{}{}
 		}
 		if strings.Contains(lower, "docker-compose") {
-			composePath := filepath.Join(rootAbs, cfg)
-			services, err := parseDockerComposeServices(composePath)
+			services, err := parseDockerComposeServices(configPath)
 			if err == nil {
 				for _, service := range services {
 					set[service] = struct{}{}
 				}
 			}
 		}
-		if strings.Contains(lower, ".env") {
+		if isEnvConfigFile(filepath.Base(cfg)) {
 			set["env-file"] = struct{}{}
+			services, err := parseEnvServices(configPath)
+			if err == nil {
+				for _, service := range services {
+					set[service] = struct{}{}
+				}
+			}
+		}
+
+		if isTerraformConfigFile(filepath.Base(cfg)) {
+			services, err := parseTerraformServices(configPath)
+			if err == nil {
+				for _, service := range services {
+					set[service] = struct{}{}
+				}
+			}
+		}
+
+		if isKubernetesConfigCandidate(configPath, filepath.Base(cfg)) {
+			services, err := parseKubernetesManifestServices(configPath)
+			if err == nil {
+				for _, service := range services {
+					set[service] = struct{}{}
+				}
+			}
 		}
 	}
 	return sortedSet(set)
+}
+
+func isEnvConfigFile(base string) bool {
+	lower := strings.ToLower(base)
+	return lower == ".env" || strings.HasPrefix(lower, ".env.")
+}
+
+func isTerraformConfigFile(base string) bool {
+	return strings.HasSuffix(strings.ToLower(base), ".tf")
+}
+
+func isKubernetesConfigCandidate(path, base string) bool {
+	ext := strings.ToLower(filepath.Ext(base))
+	if ext != ".yaml" && ext != ".yml" {
+		return false
+	}
+
+	lowerPath := strings.ToLower(filepath.ToSlash(path))
+	lowerBase := strings.ToLower(base)
+	if strings.Contains(lowerPath, "/k8s/") ||
+		strings.Contains(lowerPath, "/kubernetes/") ||
+		strings.Contains(lowerPath, "/helm/") ||
+		strings.Contains(lowerBase, "deployment") ||
+		strings.Contains(lowerBase, "statefulset") ||
+		strings.Contains(lowerBase, "daemonset") ||
+		strings.Contains(lowerBase, "service") ||
+		strings.Contains(lowerBase, "ingress") ||
+		strings.Contains(lowerBase, "kustomization") ||
+		strings.Contains(lowerBase, "values") ||
+		strings.Contains(lowerBase, "chart") {
+		return true
+	}
+	return false
 }
 
 func parseDockerComposeServices(path string) ([]string, error) {
@@ -768,6 +833,130 @@ func parseDockerComposeServices(path string) ([]string, error) {
 	return sortedSet(found), nil
 }
 
+func parseEnvServices(path string) ([]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	found := map[string]struct{}{}
+	s := bufio.NewScanner(file)
+	for s.Scan() {
+		line := strings.TrimSpace(s.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimPrefix(line, "export ")
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		value = strings.Trim(value, `"'`)
+		if svc := detectInfraService(key); svc != "" {
+			found[svc] = struct{}{}
+		}
+		if svc := detectInfraService(value); svc != "" {
+			found[svc] = struct{}{}
+		}
+	}
+	if err := s.Err(); err != nil {
+		return nil, err
+	}
+	return sortedSet(found), nil
+}
+
+func parseTerraformServices(path string) ([]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	found := map[string]struct{}{}
+	s := bufio.NewScanner(file)
+	for s.Scan() {
+		line := strings.ToLower(strings.TrimSpace(s.Text()))
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "//") {
+			continue
+		}
+
+		if svc := detectInfraService(line); svc != "" {
+			found[svc] = struct{}{}
+		}
+		if strings.Contains(line, "terraform {") || strings.Contains(line, `provider "`) {
+			found["terraform"] = struct{}{}
+		}
+		if strings.Contains(line, "aws_eks_cluster") ||
+			strings.Contains(line, "google_container_cluster") ||
+			strings.Contains(line, "azurerm_kubernetes_cluster") ||
+			strings.Contains(line, "kubernetes_") ||
+			strings.Contains(line, "helm_release") {
+			found["kubernetes"] = struct{}{}
+		}
+		if strings.Contains(line, "aws_elasticache") {
+			found["redis"] = struct{}{}
+		}
+		if strings.Contains(line, "aws_mq_broker") {
+			found["rabbitmq"] = struct{}{}
+		}
+	}
+	if err := s.Err(); err != nil {
+		return nil, err
+	}
+	return sortedSet(found), nil
+}
+
+func parseKubernetesManifestServices(path string) ([]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	found := map[string]struct{}{}
+	hasAPIVersion := false
+	hasKind := false
+
+	s := bufio.NewScanner(file)
+	for s.Scan() {
+		line := strings.TrimSpace(s.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		lower := strings.ToLower(line)
+		if strings.HasPrefix(lower, "apiversion:") {
+			hasAPIVersion = true
+		}
+		if strings.HasPrefix(lower, "kind:") {
+			hasKind = true
+		}
+		if strings.HasPrefix(lower, "image:") {
+			image := strings.TrimSpace(strings.TrimPrefix(line, "image:"))
+			image = strings.Trim(image, `"'`)
+			if svc := detectInfraService(image); svc != "" {
+				found[svc] = struct{}{}
+			}
+		}
+		if strings.HasPrefix(lower, "name:") {
+			name := strings.TrimSpace(strings.TrimPrefix(lower, "name:"))
+			if svc := detectInfraService(name); svc != "" {
+				found[svc] = struct{}{}
+			}
+		}
+	}
+	if err := s.Err(); err != nil {
+		return nil, err
+	}
+
+	if hasAPIVersion && hasKind {
+		found["kubernetes"] = struct{}{}
+	}
+	return sortedSet(found), nil
+}
+
 func leadingIndent(line string) int {
 	n := 0
 	for _, ch := range line {
@@ -821,6 +1010,10 @@ func detectInfraService(value string) string {
 		return "memcached"
 	case strings.Contains(v, "sqlserver") || strings.Contains(v, "mssql"):
 		return "sqlserver"
+	case strings.Contains(v, "kubernetes") || strings.Contains(v, "k8s"):
+		return "kubernetes"
+	case strings.Contains(v, "terraform"):
+		return "terraform"
 	default:
 		return ""
 	}

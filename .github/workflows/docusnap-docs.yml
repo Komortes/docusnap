@@ -1,0 +1,79 @@
+name: docusnap-docs
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Run mode
+        required: true
+        default: check
+        type: choice
+        options:
+          - check
+          - update
+
+permissions:
+  contents: read
+
+jobs:
+  docs-check:
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'check')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Generate snapshot and docs
+        run: go run ./cmd/docusnap run --path . --snapshot snapshot.json --docs docs
+
+      - name: Check generated files are up to date
+        run: |
+          if ! git diff --quiet -- snapshot.json docs; then
+            echo "Generated artifacts are out of date."
+            git --no-pager diff -- snapshot.json docs
+            exit 1
+          fi
+
+  docs-update:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'update')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Generate snapshot and docs
+        run: go run ./cmd/docusnap run --path . --snapshot snapshot.json --docs docs
+
+      - name: Commit and push if changed
+        run: |
+          if git diff --quiet -- snapshot.json docs; then
+            echo "No generated changes"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add snapshot.json docs
+          git commit -m "chore(docs): update generated snapshot and docs"
+          git push
