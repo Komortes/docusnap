@@ -64,6 +64,8 @@ func Scan(root string) (model.Snapshot, error) {
 	foundGinRoutes := false
 	foundEchoRoutes := false
 	foundFastAPIRoutes := false
+	foundFlaskRoutes := false
+	foundDjangoRoutes := false
 
 	err = filepath.WalkDir(rootAbs, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -163,6 +165,18 @@ func Scan(root string) (model.Snapshot, error) {
 				routes = append(routes, parsedRoutes...)
 				foundFastAPIRoutes = foundFastAPIRoutes || usedFastAPI
 			}
+			flaskRoutes, usedFlask, err := parseFlaskRoutes(path)
+			if err == nil && len(flaskRoutes) > 0 {
+				routes = append(routes, flaskRoutes...)
+				foundFlaskRoutes = foundFlaskRoutes || usedFlask
+			}
+			if isDjangoURLsFile(path) {
+				djangoRoutes, usedDjango, err := parseDjangoRoutes(path)
+				if err == nil && len(djangoRoutes) > 0 {
+					routes = append(routes, djangoRoutes...)
+					foundDjangoRoutes = foundDjangoRoutes || usedDjango
+				}
+			}
 		}
 
 		return nil
@@ -179,6 +193,7 @@ func Scan(root string) (model.Snapshot, error) {
 	detectedFiles := collectDetectedFiles(foundTechFiles)
 	configs := collectDetectedFiles(foundConfigFiles)
 	languages, managers := detectLanguagesAndManagers(detectedFiles)
+	managers = mergeSortedUnique(managers, dependencyManagerKeys(dependencies))
 	frameworks := sortedSet(frameworkSet)
 	infrastructure := detectInfrastructureServices(rootAbs, configs)
 	routes = deduplicateRoutes(routes)
@@ -197,7 +212,13 @@ func Scan(root string) (model.Snapshot, error) {
 	if foundFastAPIRoutes {
 		frameworkSet["fastapi"] = struct{}{}
 	}
-	if foundLaravelRoutes || foundExpressRoutes || foundGinRoutes || foundEchoRoutes || foundFastAPIRoutes {
+	if foundFlaskRoutes {
+		frameworkSet["flask"] = struct{}{}
+	}
+	if foundDjangoRoutes {
+		frameworkSet["django"] = struct{}{}
+	}
+	if foundLaravelRoutes || foundExpressRoutes || foundGinRoutes || foundEchoRoutes || foundFastAPIRoutes || foundFlaskRoutes || foundDjangoRoutes {
 		frameworks = sortedSet(frameworkSet)
 	}
 
@@ -242,7 +263,7 @@ func detectLanguagesAndManagers(found []string) ([]string, []string) {
 		}
 		if strings.HasSuffix(strings.ToLower(file), "pyproject.toml") {
 			languageSet["python"] = struct{}{}
-			managerSet["poetry"] = struct{}{}
+			managerSet["pip"] = struct{}{}
 		}
 	}
 
@@ -265,6 +286,26 @@ func sortedSet(items map[string]struct{}) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func dependencyManagerKeys(dependencies map[string][]model.Dependency) []string {
+	keys := make([]string, 0, len(dependencies))
+	for key := range dependencies {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func mergeSortedUnique(a, b []string) []string {
+	set := map[string]struct{}{}
+	for _, item := range a {
+		set[item] = struct{}{}
+	}
+	for _, item := range b {
+		set[item] = struct{}{}
+	}
+	return sortedSet(set)
 }
 
 func parsePackageJSON(path string) ([]model.Dependency, error) {
@@ -421,9 +462,22 @@ func parseRequirementsTxt(path string) ([]model.Dependency, error) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		if strings.HasPrefix(line, "-r ") || strings.HasPrefix(line, "--requirement ") {
+		if strings.HasPrefix(line, "-") {
 			continue
 		}
+
+		if strings.Contains(line, "://") {
+			lower := strings.ToLower(line)
+			eggIndex := strings.Index(lower, "#egg=")
+			if eggIndex > 0 && eggIndex+5 < len(line) {
+				name := strings.TrimSpace(line[eggIndex+5:])
+				if name != "" {
+					deps = append(deps, model.Dependency{Name: strings.ToLower(name), Version: ""})
+				}
+			}
+			continue
+		}
+
 		line = stripInlineComment(line)
 		if line == "" {
 			continue
@@ -529,11 +583,32 @@ func splitPythonRequirement(line string) (string, string) {
 }
 
 func stripInlineComment(line string) string {
-	i := strings.Index(line, "#")
-	if i == -1 {
-		return strings.TrimSpace(line)
+	inSingleQuoted := false
+	inDoubleQuoted := false
+	escaped := false
+
+	for i, ch := range line {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if ch == '\\' {
+			escaped = true
+			continue
+		}
+		if ch == '\'' && !inDoubleQuoted {
+			inSingleQuoted = !inSingleQuoted
+			continue
+		}
+		if ch == '"' && !inSingleQuoted {
+			inDoubleQuoted = !inDoubleQuoted
+			continue
+		}
+		if ch == '#' && !inSingleQuoted && !inDoubleQuoted {
+			return strings.TrimSpace(line[:i])
+		}
 	}
-	return strings.TrimSpace(line[:i])
+	return strings.TrimSpace(line)
 }
 
 func parseQuotedDependencies(line string) []string {
@@ -768,7 +843,13 @@ var (
 	fastAPIRouterDeclPattern    = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*APIRouter\((.*)\)`)
 	fastAPIPrefixPattern        = regexp.MustCompile(`prefix\s*=\s*["']([^"']+)["']`)
 	fastAPIDecoratorPattern     = regexp.MustCompile(`^@([A-Za-z_][A-Za-z0-9_]*)\.(get|post|put|patch|delete|options|head)\(\s*["']([^"']+)["']`)
-	fastAPIDefPattern           = regexp.MustCompile(`^def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+	pythonDefPattern            = regexp.MustCompile(`^(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+	flaskBlueprintDeclPattern   = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*Blueprint\((.*)\)`)
+	flaskURLPrefixPattern       = regexp.MustCompile(`url_prefix\s*=\s*["']([^"']+)["']`)
+	flaskDecoratorRoutePattern  = regexp.MustCompile(`^@([A-Za-z_][A-Za-z0-9_]*)\.route\(\s*["']([^"']+)["'](?:\s*,\s*methods\s*=\s*\[([^\]]+)\])?`)
+	flaskDecoratorMethodPattern = regexp.MustCompile(`^@([A-Za-z_][A-Za-z0-9_]*)\.(get|post|put|patch|delete|options|head)\(\s*["']([^"']+)["']`)
+	methodTokenPattern          = regexp.MustCompile(`["']([A-Za-z]+)["']`)
+	djangoPathPattern           = regexp.MustCompile(`(?:path|re_path)\(\s*["']([^"']+)["']\s*,\s*([A-Za-z_][A-Za-z0-9_\.]*)(?:\.as_view\(\))?`)
 	goGinRootPattern            = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*gin\.(Default|New)\s*\(`)
 	goEchoRootPattern           = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*echo\.New\s*\(`)
 	goGroupPattern              = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*([A-Za-z_][A-Za-z0-9_]*)\.Group\(\s*["\x60]([^"\x60]*)["\x60]`)
@@ -923,7 +1004,7 @@ func parseFastAPIRoutes(path string) ([]model.Route, bool, error) {
 		}
 
 		if pendingMethod != "" {
-			if m := fastAPIDefPattern.FindStringSubmatch(line); len(m) == 2 {
+			if m := pythonDefPattern.FindStringSubmatch(line); len(m) == 2 {
 				fullPath := pendingPath
 				if prefix, ok := routerPrefixByVar[pendingReceiver]; ok && prefix != "" {
 					fullPath = joinRoutePaths(prefix, pendingPath)
@@ -951,6 +1032,147 @@ func parseFastAPIRoutes(path string) ([]model.Route, bool, error) {
 	}
 
 	return routes, usedFastAPI, nil
+}
+
+func parseFlaskRoutes(path string) ([]model.Route, bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, false, err
+	}
+	defer file.Close()
+
+	blueprintPrefixByVar := map[string]string{}
+	routes := make([]model.Route, 0)
+	usedFlask := false
+
+	pendingReceiver := ""
+	pendingPath := ""
+	pendingMethods := make([]string, 0)
+
+	s := bufio.NewScanner(file)
+	for s.Scan() {
+		line := strings.TrimSpace(s.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		if m := flaskBlueprintDeclPattern.FindStringSubmatch(line); len(m) == 3 {
+			prefix := ""
+			if pm := flaskURLPrefixPattern.FindStringSubmatch(m[2]); len(pm) == 2 {
+				prefix = normalizeRoutePath(pm[1])
+			}
+			blueprintPrefixByVar[m[1]] = prefix
+			usedFlask = true
+		}
+
+		if m := flaskDecoratorRoutePattern.FindStringSubmatch(line); len(m) >= 3 {
+			pendingReceiver = m[1]
+			pendingPath = normalizeRoutePath(m[2])
+			pendingMethods = parseFlaskMethods(m[3])
+			if len(pendingMethods) == 0 {
+				pendingMethods = []string{"ANY"}
+			}
+			usedFlask = true
+			continue
+		}
+
+		if m := flaskDecoratorMethodPattern.FindStringSubmatch(line); len(m) == 4 {
+			pendingReceiver = m[1]
+			pendingPath = normalizeRoutePath(m[3])
+			pendingMethods = []string{strings.ToUpper(m[2])}
+			usedFlask = true
+			continue
+		}
+
+		if len(pendingMethods) > 0 {
+			if m := pythonDefPattern.FindStringSubmatch(line); len(m) == 2 {
+				fullPath := pendingPath
+				if prefix, ok := blueprintPrefixByVar[pendingReceiver]; ok && prefix != "" {
+					fullPath = joinRoutePaths(prefix, pendingPath)
+				}
+				for _, method := range pendingMethods {
+					routes = append(routes, model.Route{
+						Method:     method,
+						Path:       fullPath,
+						Controller: m[1],
+					})
+				}
+				pendingReceiver = ""
+				pendingPath = ""
+				pendingMethods = nil
+				continue
+			}
+
+			if strings.HasPrefix(line, "@") {
+				pendingReceiver = ""
+				pendingPath = ""
+				pendingMethods = nil
+			}
+		}
+	}
+	if err := s.Err(); err != nil {
+		return nil, false, err
+	}
+
+	return routes, usedFlask, nil
+}
+
+func parseFlaskMethods(value string) []string {
+	out := make([]string, 0)
+	for _, m := range methodTokenPattern.FindAllStringSubmatch(value, -1) {
+		if len(m) < 2 || m[1] == "" {
+			continue
+		}
+		out = append(out, strings.ToUpper(strings.TrimSpace(m[1])))
+	}
+	return out
+}
+
+func isDjangoURLsFile(path string) bool {
+	return strings.EqualFold(filepath.Base(path), "urls.py")
+}
+
+func parseDjangoRoutes(path string) ([]model.Route, bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, false, err
+	}
+	defer file.Close()
+
+	routes := make([]model.Route, 0)
+	usedDjango := false
+
+	s := bufio.NewScanner(file)
+	for s.Scan() {
+		line := strings.TrimSpace(s.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		m := djangoPathPattern.FindStringSubmatch(line)
+		if len(m) != 3 {
+			continue
+		}
+
+		pathValue := normalizeRoutePath(m[1])
+		controller := strings.TrimSuffix(m[2], ".as_view")
+		if controller == "include" {
+			continue
+		}
+		if strings.Contains(line, ".as_view(") {
+			controller += "@as_view"
+		}
+		routes = append(routes, model.Route{
+			Method:     "ANY",
+			Path:       pathValue,
+			Controller: controller,
+		})
+		usedDjango = true
+	}
+	if err := s.Err(); err != nil {
+		return nil, false, err
+	}
+
+	return routes, usedDjango, nil
 }
 
 func isGoRoutesFile(path string) bool {

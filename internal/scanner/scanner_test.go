@@ -136,7 +136,7 @@ app = FastAPI()
 router = APIRouter(prefix="/api")
 
 @app.get("/health")
-def health():
+async def health():
     return {"ok": True}
 
 @router.post("/orders")
@@ -332,6 +332,9 @@ fastapi>=0.115.0
 uvicorn[standard]==0.30.0
 django==5.1.1 # inline comment
 -r requirements-dev.txt
+-e .
+--editable git+https://github.com/pallets/flask.git#egg=flask
+-c constraints.txt
 `
 	if err := os.WriteFile(reqPath, []byte(content), 0o644); err != nil {
 		t.Fatalf("write requirements.txt: %v", err)
@@ -388,6 +391,134 @@ flask = "^3.0.0"
 	}
 	if len(snap.Dependencies["pip"]) == 0 || len(snap.Dependencies["poetry"]) == 0 {
 		t.Fatalf("expected pip and poetry dependencies, got %#v", snap.Dependencies)
+	}
+}
+
+func TestScanPyprojectWithoutPoetryDoesNotSetPoetryManager(t *testing.T) {
+	tmp := t.TempDir()
+
+	pyproject := `[project]
+name = "demo"
+dependencies = [
+  "requests>=2.0.0",
+]
+`
+	if err := os.WriteFile(filepath.Join(tmp, "pyproject.toml"), []byte(pyproject), 0o644); err != nil {
+		t.Fatalf("write pyproject.toml: %v", err)
+	}
+
+	snap, err := Scan(tmp)
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+	if containsString(snap.PackageManagers, "poetry") {
+		t.Fatalf("did not expect poetry manager, got %#v", snap.PackageManagers)
+	}
+	if !containsString(snap.PackageManagers, "pip") {
+		t.Fatalf("expected pip manager, got %#v", snap.PackageManagers)
+	}
+}
+
+func TestParseFlaskRoutes(t *testing.T) {
+	tmp := t.TempDir()
+	pyPath := filepath.Join(tmp, "app.py")
+	content := `from flask import Flask, Blueprint
+
+app = Flask(__name__)
+bp = Blueprint("api", __name__, url_prefix="/api")
+
+@app.get("/health")
+def health():
+    return "ok"
+
+@bp.route("/orders", methods=["POST"])
+def create_order():
+    return "ok"
+`
+	if err := os.WriteFile(pyPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write app.py: %v", err)
+	}
+
+	routes, usedFlask, err := parseFlaskRoutes(pyPath)
+	if err != nil {
+		t.Fatalf("parse flask routes: %v", err)
+	}
+	if !usedFlask {
+		t.Fatalf("expected flask usage")
+	}
+	if len(routes) != 2 {
+		t.Fatalf("expected 2 routes, got %d (%#v)", len(routes), routes)
+	}
+	if routes[0].Method != "GET" || routes[0].Path != "/health" {
+		t.Fatalf("unexpected first route: %#v", routes[0])
+	}
+	if routes[1].Method != "POST" || routes[1].Path != "/api/orders" {
+		t.Fatalf("unexpected second route: %#v", routes[1])
+	}
+}
+
+func TestParseDjangoRoutes(t *testing.T) {
+	tmp := t.TempDir()
+	pyPath := filepath.Join(tmp, "urls.py")
+	content := `from django.urls import path
+from . import views
+
+urlpatterns = [
+    path("health/", views.health),
+    path("orders/", views.OrderView.as_view()),
+]
+`
+	if err := os.WriteFile(pyPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write urls.py: %v", err)
+	}
+
+	routes, usedDjango, err := parseDjangoRoutes(pyPath)
+	if err != nil {
+		t.Fatalf("parse django routes: %v", err)
+	}
+	if !usedDjango {
+		t.Fatalf("expected django usage")
+	}
+	if len(routes) != 2 {
+		t.Fatalf("expected 2 routes, got %d (%#v)", len(routes), routes)
+	}
+	if routes[0].Method != "ANY" || routes[0].Path != "/health/" || routes[0].Controller != "views.health" {
+		t.Fatalf("unexpected first route: %#v", routes[0])
+	}
+	if routes[1].Method != "ANY" || routes[1].Controller != "views.OrderView@as_view" {
+		t.Fatalf("unexpected second route: %#v", routes[1])
+	}
+}
+
+func TestScanDetectsFlaskAndDjangoRoutesAsFrameworks(t *testing.T) {
+	tmp := t.TempDir()
+
+	flaskFile := `from flask import Flask
+app = Flask(__name__)
+@app.get("/health")
+def health():
+    return "ok"
+`
+	if err := os.WriteFile(filepath.Join(tmp, "app.py"), []byte(flaskFile), 0o644); err != nil {
+		t.Fatalf("write app.py: %v", err)
+	}
+
+	djangoFile := `from django.urls import path
+from . import views
+urlpatterns = [
+    path("orders/", views.orders),
+]
+`
+	if err := os.WriteFile(filepath.Join(tmp, "urls.py"), []byte(djangoFile), 0o644); err != nil {
+		t.Fatalf("write urls.py: %v", err)
+	}
+
+	snap, err := Scan(tmp)
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+	if !containsString(snap.Frameworks, "flask") || !containsString(snap.Frameworks, "django") {
+		t.Fatalf("expected flask+django frameworks, got %#v", snap.Frameworks)
 	}
 }
 

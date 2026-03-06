@@ -124,7 +124,8 @@ func runRender(args []string) {
 		exitErr("render", err)
 	}
 
-	generated, err := render.Generate(snap, *outDir)
+	resolvedOutDir := resolveOutputPath(*path, *outDir)
+	generated, err := render.Generate(snap, resolvedOutDir)
 	if err != nil {
 		exitErr("render", err)
 	}
@@ -174,8 +175,9 @@ func loadOrScan(snapshotPath, path string) (model.Snapshot, error) {
 }
 
 func loadSnapshotOrGenerate(snapshotPath, projectPath string, pretty bool) (model.Snapshot, error) {
-	if _, err := os.Stat(snapshotPath); err == nil {
-		return model.ReadSnapshot(snapshotPath)
+	resolvedSnapshotPath := resolveOutputPath(projectPath, snapshotPath)
+	if _, err := os.Stat(resolvedSnapshotPath); err == nil {
+		return model.ReadSnapshot(resolvedSnapshotPath)
 	}
 
 	snap, err := scanner.Scan(projectPath)
@@ -183,8 +185,7 @@ func loadSnapshotOrGenerate(snapshotPath, projectPath string, pretty bool) (mode
 		return model.Snapshot{}, err
 	}
 
-	resolved := resolveOutputPath(projectPath, snapshotPath)
-	if err := model.WriteSnapshot(resolved, snap, pretty); err != nil {
+	if err := model.WriteSnapshot(resolvedSnapshotPath, snap, pretty); err != nil {
 		return model.Snapshot{}, err
 	}
 
