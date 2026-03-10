@@ -1037,6 +1037,7 @@ var (
 	fastAPIPrefixPattern        = regexp.MustCompile(`prefix\s*=\s*["']([^"']+)["']`)
 	fastAPIDecoratorPattern     = regexp.MustCompile(`^@([A-Za-z_][A-Za-z0-9_]*)\.(get|post|put|patch|delete|options|head)\(\s*["']([^"']+)["']`)
 	pythonDefPattern            = regexp.MustCompile(`^(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+	flaskAppDeclPattern         = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*Flask\(`)
 	flaskBlueprintDeclPattern   = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*Blueprint\((.*)\)`)
 	flaskURLPrefixPattern       = regexp.MustCompile(`url_prefix\s*=\s*["']([^"']+)["']`)
 	flaskDecoratorRoutePattern  = regexp.MustCompile(`^@([A-Za-z_][A-Za-z0-9_]*)\.route\(\s*["']([^"']+)["'](?:\s*,\s*methods\s*=\s*\[([^\]]+)\])?`)
@@ -1234,6 +1235,7 @@ func parseFlaskRoutes(path string) ([]model.Route, bool, error) {
 	}
 	defer file.Close()
 
+	flaskAppVars := map[string]struct{}{}
 	blueprintPrefixByVar := map[string]string{}
 	routes := make([]model.Route, 0)
 	usedFlask := false
@@ -1249,6 +1251,11 @@ func parseFlaskRoutes(path string) ([]model.Route, bool, error) {
 			continue
 		}
 
+		if m := flaskAppDeclPattern.FindStringSubmatch(line); len(m) == 2 {
+			flaskAppVars[m[1]] = struct{}{}
+			usedFlask = true
+		}
+
 		if m := flaskBlueprintDeclPattern.FindStringSubmatch(line); len(m) == 3 {
 			prefix := ""
 			if pm := flaskURLPrefixPattern.FindStringSubmatch(m[2]); len(pm) == 2 {
@@ -1259,6 +1266,9 @@ func parseFlaskRoutes(path string) ([]model.Route, bool, error) {
 		}
 
 		if m := flaskDecoratorRoutePattern.FindStringSubmatch(line); len(m) >= 3 {
+			if !isKnownFlaskReceiver(m[1], flaskAppVars, blueprintPrefixByVar) {
+				continue
+			}
 			pendingReceiver = m[1]
 			pendingPath = normalizeRoutePath(m[2])
 			pendingMethods = parseFlaskMethods(m[3])
@@ -1270,6 +1280,9 @@ func parseFlaskRoutes(path string) ([]model.Route, bool, error) {
 		}
 
 		if m := flaskDecoratorMethodPattern.FindStringSubmatch(line); len(m) == 4 {
+			if !isKnownFlaskReceiver(m[1], flaskAppVars, blueprintPrefixByVar) {
+				continue
+			}
 			pendingReceiver = m[1]
 			pendingPath = normalizeRoutePath(m[3])
 			pendingMethods = []string{strings.ToUpper(m[2])}
@@ -1308,6 +1321,14 @@ func parseFlaskRoutes(path string) ([]model.Route, bool, error) {
 	}
 
 	return routes, usedFlask, nil
+}
+
+func isKnownFlaskReceiver(receiver string, flaskAppVars map[string]struct{}, blueprintPrefixByVar map[string]string) bool {
+	if _, ok := flaskAppVars[receiver]; ok {
+		return true
+	}
+	_, ok := blueprintPrefixByVar[receiver]
+	return ok
 }
 
 func parseFlaskMethods(value string) []string {

@@ -50,10 +50,11 @@ func runScan(args []string) {
 	}
 
 	if *out != "" {
-		if err := model.WriteSnapshot(*out, snap, *pretty); err != nil {
+		resolvedOutPath := resolveOutputPath(*path, *out)
+		if err := model.WriteSnapshot(resolvedOutPath, snap, *pretty); err != nil {
 			exitErr("write snapshot", err)
 		}
-		fmt.Printf("snapshot written: %s\n", *out)
+		fmt.Printf("snapshot written: %s\n", resolvedOutPath)
 		return
 	}
 
@@ -169,7 +170,7 @@ func runFullRun(args []string) {
 
 func loadOrScan(snapshotPath, path string) (model.Snapshot, error) {
 	if snapshotPath != "" {
-		return model.ReadSnapshot(snapshotPath)
+		return model.ReadSnapshot(resolveOutputPath(path, snapshotPath))
 	}
 	return scanner.Scan(path)
 }

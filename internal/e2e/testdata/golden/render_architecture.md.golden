@@ -1,0 +1,20 @@
+# Architecture
+
+## Layer Diagram
+
+~~~mermaid
+graph TD
+Controllers --> Services
+Services --> Repositories
+Repositories --> Database
+~~~
+
+## Technology View
+- Framework: express
+- Framework: fastapi
+- Framework: gin
+- Framework: react
+- Infrastructure: docker
+- Infrastructure: env-file
+- Infrastructure: postgres
+- Infrastructure: redis

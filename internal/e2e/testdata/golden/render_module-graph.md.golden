@@ -1,0 +1,25 @@
+# Module Graph
+
+Overview graph collapsed by module path for readability.
+~~~mermaid
+graph TD
+  subgraph G_internal["internal"]
+    M1["internal/server"]
+    M2["internal/store"]
+  end
+  subgraph G_py["py"]
+    M3["py/api"]
+    M4["py/service"]
+  end
+  subgraph G_root["root"]
+    M5["root"]
+  end
+  subgraph G_web["web"]
+    M7["web/handlers"]
+    M6["web/server"]
+  end
+  M1 --> M2
+  M3 --> M4
+  M5 --> M1
+  M6 --> M7
+~~~

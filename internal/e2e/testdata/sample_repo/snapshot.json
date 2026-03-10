@@ -1,0 +1,76 @@
+{
+  "projectPath": "/Users/oleksandrskoruk/projects/docusnap/internal/e2e/testdata/sample_repo",
+  "scannedAt": "2026-03-09T08:50:22Z",
+  "languages": [
+    "go",
+    "javascript",
+    "python"
+  ],
+  "packageManagers": [
+    "go",
+    "npm",
+    "pip"
+  ],
+  "frameworks": [
+    "express",
+    "fastapi",
+    "gin",
+    "react"
+  ],
+  "dependencies": {
+    "go": [
+      {
+        "name": "github.com/gin-gonic/gin",
+        "version": "v1.10.0"
+      }
+    ],
+    "npm": [
+      {
+        "name": "express",
+        "version": "^5.0.0"
+      },
+      {
+        "name": "react",
+        "version": "^18.3.0"
+      }
+    ],
+    "pip": [
+      {
+        "name": "fastapi",
+        "version": "==0.115.0"
+      }
+    ]
+  },
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/api/health",
+      "controller": "server.Health"
+    },
+    {
+      "method": "GET",
+      "path": "/py/health",
+      "controller": "health"
+    },
+    {
+      "method": "GET",
+      "path": "/web/health",
+      "controller": "healthHandler"
+    }
+  ],
+  "configFiles": [
+    ".env",
+    "docker-compose.yml"
+  ],
+  "infrastructureServices": [
+    "docker",
+    "env-file",
+    "postgres",
+    "redis"
+  ],
+  "detectedFiles": [
+    "go.mod",
+    "package.json",
+    "requirements.txt"
+  ]
+}

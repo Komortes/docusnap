@@ -1,0 +1,14 @@
+# Dependencies
+## go
+| Name | Version |
+|---|---|
+| github.com/gin-gonic/gin | v1.10.0 |
+## npm
+| Name | Version |
+|---|---|
+| express | ^5.0.0 |
+| react | ^18.3.0 |
+## pip
+| Name | Version |
+|---|---|
+| fastapi | ==0.115.0 |

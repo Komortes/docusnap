@@ -1,0 +1,6 @@
+# API Endpoints
+| Method | Path | Controller |
+|---|---|---|
+| GET | /api/health | server.Health |
+| GET | /py/health | health |
+| GET | /web/health | healthHandler |

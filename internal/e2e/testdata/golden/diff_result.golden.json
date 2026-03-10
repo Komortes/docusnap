@@ -1,0 +1,58 @@
+{
+  "addedLanguages": [
+    "rust"
+  ],
+  "removedLanguages": [],
+  "addedPackageManagers": [
+    "cargo"
+  ],
+  "removedPackageManagers": [],
+  "addedInfrastructureServices": [
+    "kubernetes"
+  ],
+  "removedInfrastructureServices": [
+    "env-file"
+  ],
+  "addedFrameworks": [
+    "next.js"
+  ],
+  "removedFrameworks": [
+    "react"
+  ],
+  "addedDependencies": {
+    "cargo": [
+      {
+        "name": "serde",
+        "version": "1.0"
+      }
+    ],
+    "npm": [
+      {
+        "name": "next",
+        "version": "^15.0.0"
+      }
+    ]
+  },
+  "removedDependencies": {
+    "npm": [
+      {
+        "name": "react",
+        "version": "^18.3.0"
+      }
+    ]
+  },
+  "addedRoutes": [
+    {
+      "method": "POST",
+      "path": "/api/orders",
+      "controller": "server.CreateOrder"
+    }
+  ],
+  "removedRoutes": [
+    {
+      "method": "GET",
+      "path": "/web/health",
+      "controller": "healthHandler"
+    }
+  ]
+}

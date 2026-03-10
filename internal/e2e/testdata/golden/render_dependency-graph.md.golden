@@ -1,0 +1,19 @@
+# Dependency Graph
+~~~mermaid
+graph LR
+  P["Project"]
+  PM1["go"]
+  P --> PM1
+  D1_1["github.com/gin-gonic/gin"]
+  PM1 --> D1_1
+  PM2["npm"]
+  P --> PM2
+  D2_1["express"]
+  PM2 --> D2_1
+  D2_2["react"]
+  PM2 --> D2_2
+  PM3["pip"]
+  P --> PM3
+  D3_1["fastapi"]
+  PM3 --> D3_1
+~~~

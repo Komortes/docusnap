@@ -190,6 +190,9 @@ def health():
 	if !containsString(snap.Frameworks, "fastapi") {
 		t.Fatalf("expected fastapi framework, got %#v", snap.Frameworks)
 	}
+	if containsString(snap.Frameworks, "flask") {
+		t.Fatalf("did not expect flask framework for fastapi app, got %#v", snap.Frameworks)
+	}
 }
 
 func TestParseGoRoutes(t *testing.T) {

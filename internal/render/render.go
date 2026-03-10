@@ -2,6 +2,7 @@ package render
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"go/parser"
 	"go/token"
@@ -91,6 +92,8 @@ No dependencies detected.
 {{- end }}
 `,
 	"module-graph.md": `# Module Graph
+
+Overview graph collapsed by module path for readability.
 
 {{- if .ModuleGraphMermaid }}
 {{ .ModuleGraphMermaid }}
@@ -258,33 +261,56 @@ type moduleEdge struct {
 	To   string
 }
 
+type phpAutoloadMapping struct {
+	Prefix string
+	Dir    string
+}
+
 func buildModuleGraphMermaid(root string) string {
-	edges := collectModuleImportEdges(root)
+	edges := collectModuleOverviewEdges(root)
 	if len(edges) == 0 {
 		return ""
 	}
 
 	nodeID := map[string]string{}
 	nodes := make([]string, 0)
+	groups := map[string][]string{}
 	nextID := 1
 	for _, edge := range edges {
 		if _, ok := nodeID[edge.From]; !ok {
 			nodeID[edge.From] = fmt.Sprintf("M%d", nextID)
 			nextID++
 			nodes = append(nodes, edge.From)
+			group := moduleGroup(edge.From)
+			groups[group] = append(groups[group], edge.From)
 		}
 		if _, ok := nodeID[edge.To]; !ok {
 			nodeID[edge.To] = fmt.Sprintf("M%d", nextID)
 			nextID++
 			nodes = append(nodes, edge.To)
+			group := moduleGroup(edge.To)
+			groups[group] = append(groups[group], edge.To)
 		}
 	}
 
+	sort.Strings(nodes)
+	groupNames := make([]string, 0, len(groups))
+	for group := range groups {
+		groupNames = append(groupNames, group)
+		sort.Strings(groups[group])
+	}
+	sort.Strings(groupNames)
+
 	var b strings.Builder
 	b.WriteString("~~~mermaid\n")
-	b.WriteString("graph LR\n")
-	for _, label := range nodes {
-		b.WriteString(fmt.Sprintf(`  %s["%s"]`+"\n", nodeID[label], escapeMermaidLabel(label)))
+	b.WriteString("graph TD\n")
+	for _, group := range groupNames {
+		groupID := sanitizeMermaidID("G_" + group)
+		b.WriteString(fmt.Sprintf(`  subgraph %s["%s"]`+"\n", groupID, escapeMermaidLabel(group)))
+		for _, label := range groups[group] {
+			b.WriteString(fmt.Sprintf(`    %s["%s"]`+"\n", nodeID[label], escapeMermaidLabel(label)))
+		}
+		b.WriteString("  end\n")
 	}
 	for _, edge := range edges {
 		b.WriteString(fmt.Sprintf("  %s --> %s\n", nodeID[edge.From], nodeID[edge.To]))
@@ -300,6 +326,7 @@ func collectModuleImportEdges(root string) []moduleEdge {
 	}
 
 	modulePath := parseGoModulePath(rootAbs)
+	phpMappings := parsePHPAutoloadMappings(rootAbs)
 	set := map[string]struct{}{}
 	out := make([]moduleEdge, 0)
 
@@ -309,11 +336,15 @@ func collectModuleImportEdges(root string) []moduleEdge {
 		}
 		if d.IsDir() {
 			base := d.Name()
-			if base == ".git" || base == "node_modules" || base == "vendor" || strings.HasPrefix(base, ".") {
+			if base == ".git" || base == "node_modules" || base == "vendor" || base == "__tests__" || strings.HasPrefix(base, ".") {
 				if path != rootAbs {
 					return filepath.SkipDir
 				}
 			}
+			return nil
+		}
+
+		if isTestModuleFile(path) {
 			return nil
 		}
 
@@ -326,6 +357,8 @@ func collectModuleImportEdges(root string) []moduleEdge {
 			edges = parseJSImportEdges(rootAbs, path)
 		case ".py":
 			edges = parsePythonImportEdges(rootAbs, path)
+		case ".php":
+			edges = parsePHPImportEdges(rootAbs, path, phpMappings)
 		default:
 			return nil
 		}
@@ -356,6 +389,155 @@ func collectModuleImportEdges(root string) []moduleEdge {
 		return out[:maxEdges]
 	}
 	return out
+}
+
+func collectModuleOverviewEdges(root string) []moduleEdge {
+	raw := collectModuleImportEdges(root)
+	if len(raw) == 0 {
+		return nil
+	}
+
+	weights := map[string]int{}
+	byKey := map[string]moduleEdge{}
+	for _, edge := range raw {
+		from := normalizeModuleOverviewNode(edge.From)
+		to := normalizeModuleOverviewNode(edge.To)
+		if from == "" || to == "" || from == to {
+			continue
+		}
+		key := from + "->" + to
+		weights[key]++
+		byKey[key] = moduleEdge{From: from, To: to}
+	}
+
+	type weightedEdge struct {
+		moduleEdge
+		weight int
+	}
+
+	weighted := make([]weightedEdge, 0, len(byKey))
+	for key, edge := range byKey {
+		weighted = append(weighted, weightedEdge{
+			moduleEdge: edge,
+			weight:     weights[key],
+		})
+	}
+
+	sort.Slice(weighted, func(i, j int) bool {
+		if weighted[i].weight == weighted[j].weight {
+			if weighted[i].From == weighted[j].From {
+				return weighted[i].To < weighted[j].To
+			}
+			return weighted[i].From < weighted[j].From
+		}
+		return weighted[i].weight > weighted[j].weight
+	})
+
+	const maxOverviewEdges = 120
+	if len(weighted) > maxOverviewEdges {
+		weighted = weighted[:maxOverviewEdges]
+	}
+
+	out := make([]moduleEdge, 0, len(weighted))
+	for _, edge := range weighted {
+		out = append(out, edge.moduleEdge)
+	}
+	return out
+}
+
+func isTestModuleFile(path string) bool {
+	base := strings.ToLower(filepath.Base(path))
+	switch {
+	case strings.HasSuffix(base, "_test.go"):
+		return true
+	case strings.HasSuffix(base, ".test.js"),
+		strings.HasSuffix(base, ".spec.js"),
+		strings.HasSuffix(base, ".test.mjs"),
+		strings.HasSuffix(base, ".spec.mjs"),
+		strings.HasSuffix(base, ".test.cjs"),
+		strings.HasSuffix(base, ".spec.cjs"),
+		strings.HasSuffix(base, ".test.ts"),
+		strings.HasSuffix(base, ".spec.ts"):
+		return true
+	case strings.HasPrefix(base, "test_") && strings.HasSuffix(base, ".py"):
+		return true
+	case strings.HasSuffix(base, "_test.py"):
+		return true
+	case strings.HasSuffix(base, "test.php"):
+		return true
+	case strings.Contains(filepath.ToSlash(path), "/tests/"):
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeModuleOverviewNode(path string) string {
+	path = filepath.ToSlash(strings.TrimSpace(path))
+	path = strings.TrimPrefix(path, "./")
+	path = strings.Trim(path, "/")
+	if path == "" || path == "." {
+		return "root"
+	}
+
+	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	dir := filepath.ToSlash(filepath.Dir(path))
+	switch base {
+	case "index", "main", "mod", "__init__":
+		if dir == "." || dir == "" {
+			return "root"
+		}
+		path = dir
+	default:
+		path = strings.TrimSuffix(path, filepath.Ext(path))
+	}
+
+	parts := strings.Split(path, "/")
+	filtered := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part == "" || part == "." {
+			continue
+		}
+		filtered = append(filtered, part)
+	}
+	if len(filtered) == 0 {
+		return "root"
+	}
+	if len(filtered) == 1 {
+		return filtered[0]
+	}
+	if len(filtered) > 2 {
+		filtered = filtered[:2]
+	}
+	return strings.Join(filtered, "/")
+}
+
+func moduleGroup(label string) string {
+	parts := strings.Split(label, "/")
+	if len(parts) == 0 || parts[0] == "" {
+		return "root"
+	}
+	return parts[0]
+}
+
+func sanitizeMermaidID(v string) string {
+	var b strings.Builder
+	for _, r := range v {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	if b.Len() == 0 {
+		return "G_root"
+	}
+	return b.String()
 }
 
 func parseGoModulePath(root string) string {
@@ -405,6 +587,8 @@ var (
 	jsImportSideEffectPattern = regexp.MustCompile(`(?m)^\s*import\s+['"]([^'"]+)['"]`)
 	jsRequirePattern          = regexp.MustCompile(`require\(\s*['"]([^'"]+)['"]\s*\)`)
 	pyFromPattern             = regexp.MustCompile(`(?m)^\s*from\s+(\.+[A-Za-z0-9_\.]*)\s+import\s+`)
+	phpNamespacePattern       = regexp.MustCompile(`(?m)^\s*namespace\s+([^;]+);`)
+	phpUsePattern             = regexp.MustCompile(`(?m)^\s*use\s+([^;]+);`)
 )
 
 func parseJSImportEdges(root, path string) []moduleEdge {
@@ -483,6 +667,144 @@ func normalizeRelativePythonImport(root, fromDir, spec string) string {
 	restPath := strings.ReplaceAll(rest, ".", string(filepath.Separator))
 	abs := filepath.Join(base, restPath)
 	return toProjectRelative(root, abs)
+}
+
+func parsePHPAutoloadMappings(root string) []phpAutoloadMapping {
+	data, err := os.ReadFile(filepath.Join(root, "composer.json"))
+	if err != nil {
+		return nil
+	}
+
+	var composer struct {
+		Autoload struct {
+			PSR4 map[string]string `json:"psr-4"`
+		} `json:"autoload"`
+		AutoloadDev struct {
+			PSR4 map[string]string `json:"psr-4"`
+		} `json:"autoload-dev"`
+	}
+	if err := json.Unmarshal(data, &composer); err != nil {
+		return nil
+	}
+
+	mappings := make([]phpAutoloadMapping, 0)
+	appendMappings := func(psr4 map[string]string) {
+		for prefix, dir := range psr4 {
+			prefix = strings.TrimSpace(prefix)
+			dir = filepath.ToSlash(strings.TrimSpace(dir))
+			dir = strings.Trim(dir, "/")
+			if prefix == "" || dir == "" {
+				continue
+			}
+			mappings = append(mappings, phpAutoloadMapping{
+				Prefix: prefix,
+				Dir:    dir,
+			})
+		}
+	}
+
+	appendMappings(composer.Autoload.PSR4)
+	appendMappings(composer.AutoloadDev.PSR4)
+
+	sort.Slice(mappings, func(i, j int) bool {
+		return len(mappings[i].Prefix) > len(mappings[j].Prefix)
+	})
+	return mappings
+}
+
+func parsePHPImportEdges(root, path string, mappings []phpAutoloadMapping) []moduleEdge {
+	if len(mappings) == 0 {
+		return nil
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	content := string(data)
+
+	currentNamespace := ""
+	if m := phpNamespacePattern.FindStringSubmatch(content); len(m) == 2 {
+		currentNamespace = strings.TrimSpace(m[1])
+	}
+
+	from := phpNamespaceToProjectPath(currentNamespace, mappings)
+	if from == "" {
+		from = toProjectRelative(root, path)
+	}
+
+	edges := make([]moduleEdge, 0)
+	for _, match := range phpUsePattern.FindAllStringSubmatch(content, -1) {
+		if len(match) != 2 {
+			continue
+		}
+		for _, targetNamespace := range expandPHPUseTargets(match[1]) {
+			to := phpNamespaceToProjectPath(targetNamespace, mappings)
+			if to == "" {
+				continue
+			}
+			edges = append(edges, moduleEdge{From: from, To: to})
+		}
+	}
+	return edges
+}
+
+func expandPHPUseTargets(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	raw = strings.TrimPrefix(raw, `\`)
+	if raw == "" || strings.HasPrefix(raw, "function ") || strings.HasPrefix(raw, "const ") {
+		return nil
+	}
+
+	if braceStart := strings.Index(raw, "{"); braceStart >= 0 && strings.HasSuffix(raw, "}") {
+		prefix := strings.TrimSpace(raw[:braceStart])
+		prefix = strings.TrimSuffix(prefix, `\`)
+		inner := strings.TrimSuffix(raw[braceStart+1:], "}")
+		items := strings.Split(inner, ",")
+		out := make([]string, 0, len(items))
+		for _, item := range items {
+			item = stripPHPAlias(item)
+			item = strings.TrimPrefix(strings.TrimSpace(item), `\`)
+			if item == "" {
+				continue
+			}
+			out = append(out, prefix+`\`+item)
+		}
+		return out
+	}
+
+	target := stripPHPAlias(raw)
+	target = strings.TrimPrefix(strings.TrimSpace(target), `\`)
+	if target == "" {
+		return nil
+	}
+	return []string{target}
+}
+
+func stripPHPAlias(raw string) string {
+	aliasSplit := regexp.MustCompile(`\s+as\s+`).Split(strings.TrimSpace(raw), 2)
+	return strings.TrimSpace(aliasSplit[0])
+}
+
+func phpNamespaceToProjectPath(namespace string, mappings []phpAutoloadMapping) string {
+	namespace = strings.TrimSpace(strings.TrimPrefix(namespace, `\`))
+	if namespace == "" {
+		return ""
+	}
+
+	for _, mapping := range mappings {
+		if !strings.HasPrefix(namespace, mapping.Prefix) {
+			continue
+		}
+		rest := strings.TrimPrefix(namespace, mapping.Prefix)
+		rest = strings.ReplaceAll(rest, `\`, "/")
+		rest = strings.Trim(rest, "/")
+		if rest == "" {
+			return mapping.Dir
+		}
+		return filepath.ToSlash(filepath.Join(mapping.Dir, rest))
+	}
+	return ""
 }
 
 func toProjectRelative(root, absPath string) string {
