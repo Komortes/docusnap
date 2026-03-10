@@ -112,6 +112,15 @@ Services --> Repositories
 Repositories --> Database
 ~~~
 
+{{- if .LaravelArchitectureMermaid }}
+## Laravel Layer Graph
+
+Derived from PHP namespace imports inside app/*.
+
+{{ .LaravelArchitectureMermaid }}
+
+{{- end }}
+
 ## Technology View
 {{- if .Frameworks }}
 {{- range .Frameworks }}
@@ -141,9 +150,10 @@ var templateNameByOutput = map[string]string{
 
 type templateData struct {
 	model.Snapshot
-	DependencyManagers     []string
-	DependencyGraphMermaid string
-	ModuleGraphMermaid     string
+	DependencyManagers         []string
+	DependencyGraphMermaid     string
+	ModuleGraphMermaid         string
+	LaravelArchitectureMermaid string
 }
 
 // Generate writes the markdown documentation set to outDir.
@@ -159,10 +169,11 @@ func Generate(snap model.Snapshot, outDir string) ([]string, error) {
 	sort.Strings(managers)
 
 	data := templateData{
-		Snapshot:               snap,
-		DependencyManagers:     managers,
-		DependencyGraphMermaid: buildDependencyGraphMermaid(snap.Dependencies),
-		ModuleGraphMermaid:     buildModuleGraphMermaid(snap.ProjectPath),
+		Snapshot:                   snap,
+		DependencyManagers:         managers,
+		DependencyGraphMermaid:     buildDependencyGraphMermaid(snap.Dependencies),
+		ModuleGraphMermaid:         buildModuleGraphMermaid(snap.ProjectPath),
+		LaravelArchitectureMermaid: buildLaravelArchitectureMermaid(snap),
 	}
 
 	generated := make([]string, 0, len(templateSources))
@@ -319,6 +330,65 @@ func buildModuleGraphMermaid(root string) string {
 	return b.String()
 }
 
+func buildLaravelArchitectureMermaid(snap model.Snapshot) string {
+	if !containsStringFold(snap.Frameworks, "laravel") {
+		return ""
+	}
+
+	rawEdges := collectModuleImportEdges(snap.ProjectPath)
+	if len(rawEdges) == 0 {
+		return ""
+	}
+
+	type layerEdge struct {
+		From string
+		To   string
+	}
+
+	set := map[layerEdge]struct{}{}
+	usedLayers := map[string]struct{}{}
+	for _, edge := range rawEdges {
+		fromLayer := laravelLayerForModule(normalizeModuleOverviewNode(edge.From))
+		toLayer := laravelLayerForModule(normalizeModuleOverviewNode(edge.To))
+		if fromLayer == "" || toLayer == "" || fromLayer == toLayer {
+			continue
+		}
+		key := layerEdge{From: fromLayer, To: toLayer}
+		set[key] = struct{}{}
+		usedLayers[fromLayer] = struct{}{}
+		usedLayers[toLayer] = struct{}{}
+	}
+
+	if len(set) == 0 {
+		return ""
+	}
+
+	layers := sortLaravelLayers(usedLayers)
+	edges := make([]layerEdge, 0, len(set))
+	for edge := range set {
+		edges = append(edges, edge)
+	}
+	sort.Slice(edges, func(i, j int) bool {
+		if edges[i].From == edges[j].From {
+			return edges[i].To < edges[j].To
+		}
+		return edges[i].From < edges[j].From
+	})
+
+	var b strings.Builder
+	b.WriteString("~~~mermaid\n")
+	b.WriteString("graph LR\n")
+	for _, layer := range layers {
+		id := sanitizeMermaidID("L_" + layer)
+		b.WriteString(fmt.Sprintf(`  %s["%s"]`+"\n", id, escapeMermaidLabel(layer)))
+	}
+	for _, edge := range edges {
+		b.WriteString(fmt.Sprintf("  %s --> %s\n", sanitizeMermaidID("L_"+edge.From), sanitizeMermaidID("L_"+edge.To)))
+	}
+	b.WriteString("~~~")
+	return b.String()
+}
+
 func collectModuleImportEdges(root string) []moduleEdge {
 	rootAbs, err := filepath.Abs(root)
 	if err != nil {
@@ -445,6 +515,15 @@ func collectModuleOverviewEdges(root string) []moduleEdge {
 	return out
 }
 
+func containsStringFold(values []string, target string) bool {
+	for _, value := range values {
+		if strings.EqualFold(value, target) {
+			return true
+		}
+	}
+	return false
+}
+
 func isTestModuleFile(path string) bool {
 	base := strings.ToLower(filepath.Base(path))
 	switch {
@@ -510,6 +589,91 @@ func normalizeModuleOverviewNode(path string) string {
 		filtered = filtered[:2]
 	}
 	return strings.Join(filtered, "/")
+}
+
+func laravelLayerForModule(module string) string {
+	if !strings.HasPrefix(module, "app/") {
+		return ""
+	}
+
+	parts := strings.Split(module, "/")
+	if len(parts) < 2 {
+		return ""
+	}
+
+	switch parts[1] {
+	case "Http":
+		return "Http"
+	case "Actions":
+		return "Actions"
+	case "Services":
+		return "Services"
+	case "Repositories", "Repository":
+		return "Repositories"
+	case "Models":
+		return "Models"
+	case "Console":
+		return "Console"
+	case "Events":
+		return "Events"
+	case "Listeners":
+		return "Listeners"
+	case "Jobs":
+		return "Jobs"
+	case "Imports":
+		return "Imports"
+	case "Exports":
+		return "Exports"
+	case "Classes":
+		return "Classes"
+	case "Enums":
+		return "Enums"
+	case "Interfaces":
+		return "Interfaces"
+	default:
+		return ""
+	}
+}
+
+func sortLaravelLayers(usedLayers map[string]struct{}) []string {
+	preferred := []string{
+		"Http",
+		"Console",
+		"Actions",
+		"Services",
+		"Repositories",
+		"Models",
+		"Events",
+		"Listeners",
+		"Jobs",
+		"Imports",
+		"Exports",
+		"Classes",
+		"Enums",
+		"Interfaces",
+	}
+
+	out := make([]string, 0, len(usedLayers))
+	remaining := map[string]struct{}{}
+	for layer := range usedLayers {
+		remaining[layer] = struct{}{}
+	}
+
+	for _, layer := range preferred {
+		if _, ok := remaining[layer]; !ok {
+			continue
+		}
+		out = append(out, layer)
+		delete(remaining, layer)
+	}
+
+	extra := make([]string, 0, len(remaining))
+	for layer := range remaining {
+		extra = append(extra, layer)
+	}
+	sort.Strings(extra)
+	out = append(out, extra...)
+	return out
 }
 
 func moduleGroup(label string) string {

@@ -16,11 +16,16 @@ on:
           - check
           - update
 
+concurrency:
+  group: docusnap-docs-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
   docs-check:
+    name: Verify Generated Snapshot And Docs
     if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'check')
     runs-on: ubuntu-latest
     steps:
@@ -38,15 +43,29 @@ jobs:
       - name: Generate snapshot and docs
         run: go run ./cmd/docusnap run --path . --snapshot snapshot.json --docs docs
 
+      - name: Upload generated artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-docs-check
+          path: |
+            snapshot.json
+            docs
+          if-no-files-found: error
+
       - name: Check generated files are up to date
         run: |
           if ! git diff --quiet -- snapshot.json docs; then
             echo "Generated artifacts are out of date."
+            echo ""
+            echo "Run locally:"
+            echo "  go run ./cmd/docusnap run --path ."
+            echo ""
             git --no-pager diff -- snapshot.json docs
             exit 1
           fi
 
   docs-update:
+    name: Refresh Generated Snapshot And Docs
     if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'update')
     runs-on: ubuntu-latest
     permissions:
@@ -64,6 +83,15 @@ jobs:
 
       - name: Generate snapshot and docs
         run: go run ./cmd/docusnap run --path . --snapshot snapshot.json --docs docs
+
+      - name: Upload generated artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-docs-update
+          path: |
+            snapshot.json
+            docs
+          if-no-files-found: error
 
       - name: Commit and push if changed
         run: |

@@ -224,3 +224,100 @@ class OrderControllerTest {}
 		t.Fatalf("expected php tests to be excluded, got:\n%s", content)
 	}
 }
+
+func TestGenerateIncludesLaravelArchitectureGraph(t *testing.T) {
+	projectDir := t.TempDir()
+	outDir := filepath.Join(projectDir, "docs")
+
+	composerJSON := `{
+  "autoload": {
+    "psr-4": {
+      "App\\": "app/"
+    }
+  }
+}`
+	if err := os.WriteFile(filepath.Join(projectDir, "composer.json"), []byte(composerJSON), 0o644); err != nil {
+		t.Fatalf("write composer.json: %v", err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(projectDir, "app", "Http", "Controllers"), 0o755); err != nil {
+		t.Fatalf("mkdir controllers: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(projectDir, "app", "Actions"), 0o755); err != nil {
+		t.Fatalf("mkdir actions: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(projectDir, "app", "Services"), 0o755); err != nil {
+		t.Fatalf("mkdir services: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(projectDir, "app", "Models"), 0o755); err != nil {
+		t.Fatalf("mkdir models: %v", err)
+	}
+
+	controllerPHP := `<?php
+namespace App\Http\Controllers;
+
+use App\Actions\SyncOrderAction;
+
+class OrderController {}
+`
+	if err := os.WriteFile(filepath.Join(projectDir, "app", "Http", "Controllers", "OrderController.php"), []byte(controllerPHP), 0o644); err != nil {
+		t.Fatalf("write controller: %v", err)
+	}
+
+	actionPHP := `<?php
+namespace App\Actions;
+
+use App\Services\OrderService;
+
+class SyncOrderAction {}
+`
+	if err := os.WriteFile(filepath.Join(projectDir, "app", "Actions", "SyncOrderAction.php"), []byte(actionPHP), 0o644); err != nil {
+		t.Fatalf("write action: %v", err)
+	}
+
+	servicePHP := `<?php
+namespace App\Services;
+
+use App\Models\Order;
+
+class OrderService {}
+`
+	if err := os.WriteFile(filepath.Join(projectDir, "app", "Services", "OrderService.php"), []byte(servicePHP), 0o644); err != nil {
+		t.Fatalf("write service: %v", err)
+	}
+
+	modelPHP := `<?php
+namespace App\Models;
+
+class Order {}
+`
+	if err := os.WriteFile(filepath.Join(projectDir, "app", "Models", "Order.php"), []byte(modelPHP), 0o644); err != nil {
+		t.Fatalf("write model: %v", err)
+	}
+
+	snap := model.Snapshot{
+		ProjectPath: projectDir,
+		Frameworks:  []string{"laravel"},
+	}
+	if _, err := Generate(snap, outDir); err != nil {
+		t.Fatalf("generate docs: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(outDir, "architecture.md"))
+	if err != nil {
+		t.Fatalf("read architecture file: %v", err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "## Laravel Layer Graph") {
+		t.Fatalf("expected Laravel graph section, got:\n%s", content)
+	}
+	if !strings.Contains(content, `L_Http["Http"]`) || !strings.Contains(content, `L_Actions["Actions"]`) ||
+		!strings.Contains(content, `L_Services["Services"]`) || !strings.Contains(content, `L_Models["Models"]`) {
+		t.Fatalf("expected Laravel layer nodes, got:\n%s", content)
+	}
+	if !strings.Contains(content, "L_Http --> L_Actions") ||
+		!strings.Contains(content, "L_Actions --> L_Services") ||
+		!strings.Contains(content, "L_Services --> L_Models") {
+		t.Fatalf("expected Laravel layer edges, got:\n%s", content)
+	}
+}

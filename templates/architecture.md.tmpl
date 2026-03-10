@@ -9,6 +9,15 @@ Services --> Repositories
 Repositories --> Database
 ~~~
 
+{{- if .LaravelArchitectureMermaid }}
+## Laravel Layer Graph
+
+Derived from PHP namespace imports inside app/*.
+
+{{ .LaravelArchitectureMermaid }}
+
+{{- end }}
+
 ## Technology View
 {{- if .Frameworks }}
 {{- range .Frameworks }}

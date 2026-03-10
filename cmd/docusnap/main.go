@@ -224,12 +224,19 @@ func exitErr(label string, err error) {
 func printHelp() {
 	fmt.Print(`DocuSnap
 
+Local CLI for repository snapshot, documentation rendering, and snapshot diff.
+
 Usage:
   docusnap scan --path . [--out snapshot.json]
   docusnap analyze --path .
   docusnap diff [--json] [--markdown-out changes.md] old.json new.json
   docusnap render --snapshot snapshot.json --out docs
   docusnap run --path .
+
+Core workflow:
+  1. scan or run
+  2. review snapshot.json and docs/
+  3. diff snapshots between versions
 
 Examples:
   docusnap scan --path . --out snapshot.json
