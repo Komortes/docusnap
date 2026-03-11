@@ -81,3 +81,29 @@ func TestLoadOrScanUsesPathForRelativeSnapshot(t *testing.T) {
 		t.Fatalf("expected snapshot from project dir, got: %#v", got.Languages)
 	}
 }
+
+func TestVersionStringIncludesBuildMetadata(t *testing.T) {
+	prevVersion := version
+	prevCommit := commit
+	prevBuildDate := buildDate
+	t.Cleanup(func() {
+		version = prevVersion
+		commit = prevCommit
+		buildDate = prevBuildDate
+	})
+
+	version = "1.2.3"
+	commit = "abc1234"
+	buildDate = "2026-03-11T12:00:00Z"
+
+	got := versionString()
+	if !strings.Contains(got, "DocuSnap 1.2.3") {
+		t.Fatalf("expected version in output, got:\n%s", got)
+	}
+	if !strings.Contains(got, "commit: abc1234") {
+		t.Fatalf("expected commit in output, got:\n%s", got)
+	}
+	if !strings.Contains(got, "built: 2026-03-11T12:00:00Z") {
+		t.Fatalf("expected build date in output, got:\n%s", got)
+	}
+}

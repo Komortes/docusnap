@@ -73,6 +73,29 @@ Outputs:
 - `docs/module-graph.md`
 - `docs/dependency-graph.md`
 
+## Install
+
+Local install with build metadata:
+
+```bash
+make install
+```
+
+Local binary build:
+
+```bash
+make build
+./bin/docusnap version
+```
+
+Direct Go install without `make`:
+
+```bash
+go install -ldflags "-X main.version=dev -X main.commit=$(git rev-parse --short HEAD) -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" ./cmd/docusnap
+```
+
+By default, `make build` and `make install` use the exact git tag if the current commit is tagged. Otherwise they fall back to `dev-<short-sha>`.
+
 ## Command Examples
 
 Scan only:
@@ -152,6 +175,60 @@ Endpoints
 + POST /api/payment
 ```
 
+## Version And Build Metadata
+
+DocuSnap exposes build metadata through:
+
+```bash
+docusnap version
+```
+
+Example output:
+
+```text
+DocuSnap 0.1.0
+commit: abc1234
+built: 2026-03-11T12:00:00Z
+```
+
+The repository `Makefile` injects:
+
+- semantic or release version
+- git commit sha
+- UTC build timestamp
+
+Version resolution order:
+
+- exact git tag on current commit
+- otherwise `dev-<short-sha>`
+
+## Releases
+
+Release workflow: `.github/workflows/docusnap-release.yml`
+
+What it does:
+
+- triggers on tag push like `v0.1.0`
+- runs the test suite
+- builds binaries for:
+  - `linux/amd64`
+  - `linux/arm64`
+  - `darwin/amd64`
+  - `darwin/arm64`
+  - `windows/amd64`
+- packages archives
+- generates `SHA256SUMS.txt`
+- publishes all artifacts to a GitHub Release
+
+Typical release flow:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The release job uses the tag itself as the binary version, so `docusnap version` in shipped artifacts will report `v0.1.0`.
+
 ## CI Workflow
 
 This repository includes a GitHub Actions workflow at `.github/workflows/docusnap-docs.yml`.
@@ -187,6 +264,12 @@ Run fixture-based end-to-end tests:
 go test ./internal/e2e
 ```
 
+Build a local release-style binary:
+
+```bash
+make build VERSION=0.1.0
+```
+
 ## Roadmap
 
 `Done in v1`
@@ -206,7 +289,6 @@ go test ./internal/e2e
 - deeper AST-based parsers for route and import extraction
 - more framework-specific analyzers
 - cloud/service detection expansion
-- release packaging and distribution
 - plugin system
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the scoped roadmap.

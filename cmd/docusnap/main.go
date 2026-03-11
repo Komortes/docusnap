@@ -14,6 +14,12 @@ import (
 	"github.com/oleksandrskoruk/docusnap/internal/scanner"
 )
 
+var (
+	version   = "dev"
+	commit    = "none"
+	buildDate = "unknown"
+)
+
 func main() {
 	if len(os.Args) < 2 {
 		printHelp()
@@ -31,6 +37,8 @@ func main() {
 		runRender(os.Args[2:])
 	case "run":
 		runFullRun(os.Args[2:])
+	case "version":
+		runVersion()
 	default:
 		printHelp()
 		os.Exit(1)
@@ -168,6 +176,10 @@ func runFullRun(args []string) {
 	}
 }
 
+func runVersion() {
+	fmt.Println(versionString())
+}
+
 func loadOrScan(snapshotPath, path string) (model.Snapshot, error) {
 	if snapshotPath != "" {
 		return model.ReadSnapshot(resolveOutputPath(path, snapshotPath))
@@ -227,6 +239,7 @@ func printHelp() {
 Local CLI for repository snapshot, documentation rendering, and snapshot diff.
 
 Usage:
+  docusnap version
   docusnap scan --path . [--out snapshot.json]
   docusnap analyze --path .
   docusnap diff [--json] [--markdown-out changes.md] old.json new.json
@@ -239,12 +252,17 @@ Core workflow:
   3. diff snapshots between versions
 
 Examples:
+  docusnap version
   docusnap scan --path . --out snapshot.json
   docusnap analyze --path .
   docusnap diff --markdown-out docs/changes.md old.json new.json
   docusnap render --snapshot snapshot.json --out docs
   docusnap run --path .
 `)
+}
+
+func versionString() string {
+	return fmt.Sprintf("DocuSnap %s\ncommit: %s\nbuilt: %s", version, commit, buildDate)
 }
 
 func writeTextFile(path string, content string) error {
