@@ -1,55 +1,53 @@
 # DocuSnap
 
-DocuSnap is a local-first CLI that scans a repository, builds a machine-readable snapshot of its current state, and renders repository documentation from the code that actually exists.
+DocuSnap is a local-first CLI for scanning repositories, generating documentation from real code and config files, and comparing repository snapshots between versions.
 
-The product goal for `v1` is narrow on purpose:
+Instead of maintaining hand-written docs that drift over time, the tool extracts what the project actually uses and turns it into Markdown and machine-readable output.
 
-- scan a repository locally
-- extract technologies, dependencies, routes, and infrastructure signals
-- render stable Markdown docs
-- compare two snapshots and show what changed
-- run the same workflow in CI
+## Highlights
 
-## Why
+- scans a repository and generates `snapshot.json`
+- detects languages, package managers, frameworks, and infrastructure signals
+- extracts dependencies from common ecosystem files
+- finds API routes for supported stacks
+- renders Markdown docs and Mermaid graphs
+- compares old and new snapshots with a readable diff
+- works locally and in CI
 
-Hand-written repository documentation drifts.
+## Why This Project
 
-Code review diffs show line changes, but they do not clearly show higher-level repository changes such as:
+Repository documentation usually gets stale for one simple reason: the code changes faster than the docs.
 
-- new dependencies
-- removed endpoints
-- framework changes
-- infrastructure changes
+DocuSnap solves that by treating the repository itself as the source of truth and generating:
 
-DocuSnap makes repository state observable with:
+- structured snapshot data for tooling
+- readable Markdown docs for humans
+- change reports for pull requests and release checks
 
-- `snapshot.json` for tooling and automation
-- generated Markdown docs for people
-- snapshot diff reports for change intelligence
+This makes repository state easier to inspect, review, and automate.
 
-## Current Product Scope
+## Tech Stack
 
-`DocuSnap v1` is a local CLI for repository snapshot, documentation rendering, and snapshot diff.
+- `Go`
+- standard library CLI
+- `JSON` for snapshot output
+- `Markdown` and `Go templates` for docs
+- `Mermaid` for graphs
+- GitHub Actions for CI and release automation
 
-Core commands:
+## Run Locally
 
-- `scan`: inspect a project and produce `snapshot.json`
-- `analyze`: print a concise project summary
-- `render`: generate docs from a snapshot
-- `run`: scan + write snapshot + render docs
-- `diff`: compare two snapshots
+Build the binary:
 
-Supported analysis today:
+```bash
+make build
+```
 
-- languages: `Go`, `PHP`, `JavaScript/TypeScript`, `Python`, `Rust`
-- package managers: `go`, `composer`, `npm`, `pip`, `poetry`, `cargo`
-- framework detection: `Laravel`, `React`, `Express`, `FastAPI`, `Flask`, `Django`, `Gin`, `Echo`
-- dependency extraction
-- route extraction for supported frameworks
-- infrastructure hints from `docker-compose`, `.env`, Kubernetes manifests, and Terraform
-- Markdown output with dependency and architecture graphs
+Check build metadata:
 
-## Quick Start
+```bash
+./bin/docusnap version
+```
 
 Run against the current repository:
 
@@ -63,7 +61,32 @@ Run against another local repository:
 go run ./cmd/docusnap run --path /absolute/path/to/project
 ```
 
-Outputs:
+## Install
+
+Local install:
+
+```bash
+make install
+```
+
+Direct Go install:
+
+```bash
+go install ./cmd/docusnap
+```
+
+Version metadata is injected through `ldflags`. If the current commit is tagged, the build uses that exact tag. Otherwise it falls back to `dev-<short-sha>`.
+
+## Commands
+
+- `docusnap version` - show build version, commit, and build time
+- `docusnap scan --path . --out snapshot.json` - scan a repository and write a snapshot
+- `docusnap analyze --path .` - print a project summary
+- `docusnap render --path . --snapshot snapshot.json --out docs` - render docs from a snapshot
+- `docusnap run --path .` - scan and render in one step
+- `docusnap diff old.json new.json` - compare two snapshots
+
+## What It Generates
 
 - `snapshot.json`
 - `docs/README.generated.md`
@@ -73,53 +96,58 @@ Outputs:
 - `docs/module-graph.md`
 - `docs/dependency-graph.md`
 
-## Install
+## Supported Detection
 
-Local install with build metadata:
+Languages:
 
-```bash
-make install
-```
+- `Go`
+- `PHP`
+- `JavaScript / TypeScript`
+- `Python`
+- `Rust`
 
-Local binary build:
+Package managers:
 
-```bash
-make build
-./bin/docusnap version
-```
+- `go`
+- `composer`
+- `npm`
+- `pip`
+- `poetry`
+- `cargo`
 
-Direct Go install without `make`:
+Framework signals:
 
-```bash
-go install -ldflags "-X main.version=dev -X main.commit=$(git rev-parse --short HEAD) -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" ./cmd/docusnap
-```
+- `Laravel`
+- `React`
+- `Express`
+- `FastAPI`
+- `Flask`
+- `Django`
+- `Gin`
+- `Echo`
 
-By default, `make build` and `make install` use the exact git tag if the current commit is tagged. Otherwise they fall back to `dev-<short-sha>`.
+Infrastructure hints:
 
-## Command Examples
+- `docker-compose`
+- `.env`
+- Kubernetes manifests
+- Terraform
 
-Scan only:
+## Example Workflow
+
+Generate a snapshot:
 
 ```bash
 go run ./cmd/docusnap scan --path /absolute/path/to/project --out /absolute/path/to/project/snapshot.json
 ```
 
-Analyze:
+Render docs:
 
 ```bash
-go run ./cmd/docusnap analyze --path /absolute/path/to/project
+go run ./cmd/docusnap render --path /absolute/path/to/project --snapshot /absolute/path/to/project/snapshot.json --out /absolute/path/to/project/docs
 ```
 
-Render docs from an existing snapshot:
-
-```bash
-go run ./cmd/docusnap render \
-  --path /absolute/path/to/project \
-  --snapshot /absolute/path/to/project/snapshot.json \
-  --out /absolute/path/to/project/docs
-```
-
-Compare two snapshots:
+Compare two versions:
 
 ```bash
 go run ./cmd/docusnap diff old.json new.json
@@ -128,167 +156,59 @@ go run ./cmd/docusnap diff old.json new.json
 Write a Markdown diff report:
 
 ```bash
-go run ./cmd/docusnap diff \
-  --markdown-out /absolute/path/to/project/docs/changes.md \
-  old.json \
-  new.json
+go run ./cmd/docusnap diff --markdown-out docs/changes.md old.json new.json
 ```
 
-## Example Snapshot
+## CI
 
-```json
-{
-  "projectPath": "/repo/project",
-  "languages": ["php", "javascript"],
-  "frameworks": ["laravel", "react"],
-  "packageManagers": ["composer", "npm"],
-  "dependencies": {
-    "composer": [
-      { "name": "laravel/framework", "version": "^11.0" }
-    ],
-    "npm": [
-      { "name": "react", "version": "^18.0.0" }
-    ]
-  },
-  "routes": [
-    {
-      "method": "GET",
-      "path": "/api/orders",
-      "controller": "OrderController@index"
-    }
-  ]
-}
-```
+The repository includes a docs workflow at `.github/workflows/docusnap-docs.yml`.
 
-## Example Diff
+It supports two modes:
 
-Text output:
+- `check` - regenerate docs and fail if tracked artifacts are outdated
+- `update` - regenerate docs and commit updated artifacts back to the branch
 
-```text
-Changes detected
-
-Dependencies
-+ stripe/stripe-php
-- laravel/sanctum
-
-Endpoints
-+ POST /api/payment
-```
-
-## Version And Build Metadata
-
-DocuSnap exposes build metadata through:
-
-```bash
-docusnap version
-```
-
-Example output:
-
-```text
-DocuSnap 0.1.0
-commit: abc1234
-built: 2026-03-11T12:00:00Z
-```
-
-The repository `Makefile` injects:
-
-- semantic or release version
-- git commit sha
-- UTC build timestamp
-
-Version resolution order:
-
-- exact git tag on current commit
-- otherwise `dev-<short-sha>`
+This is the main CI workflow for keeping generated documentation reproducible.
 
 ## Releases
 
-Release workflow: `.github/workflows/docusnap-release.yml`
+The repository also includes `.github/workflows/docusnap-release.yml`.
 
-What it does:
-
-- triggers on tag push like `v0.1.0`
-- runs the test suite
-- builds binaries for:
-  - `linux/amd64`
-  - `linux/arm64`
-  - `darwin/amd64`
-  - `darwin/arm64`
-  - `windows/amd64`
-- packages archives
-- generates `SHA256SUMS.txt`
-- publishes all artifacts to a GitHub Release
-
-Typical release flow:
+Release flow:
 
 ```bash
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The release job uses the tag itself as the binary version, so `docusnap version` in shipped artifacts will report `v0.1.0`.
+The release workflow:
 
-## CI Workflow
-
-This repository includes a GitHub Actions workflow at `.github/workflows/docusnap-docs.yml`.
-
-It supports two product modes:
-
-- `check`: run tests, regenerate `snapshot.json` and `docs/`, and fail if generated artifacts are outdated
-- `update`: regenerate artifacts and commit them back to `main` when they changed
-
-This is the intended CI story for `DocuSnap v1`: generated repository docs should be reproducible and reviewable.
+- runs the test suite
+- builds binaries for Linux, macOS, and Windows
+- packages release archives
+- generates checksums
+- publishes assets to GitHub Releases
 
 ## Limitations
 
-Current route and import extraction is heuristic in several places.
+Current analyzers are intentionally pragmatic, not fully AST-based everywhere.
 
-Known limitations:
+Known tradeoffs:
 
-- some parsers are regex-based rather than full AST-based
-- multiline or highly dynamic route definitions can be missed
-- architecture graphs are best-effort and intentionally summarized for readability
+- some route and import extraction is regex-based
+- highly dynamic or multiline route definitions can be missed
+- architecture graphs are summarized for readability rather than full fidelity
 
 ## Development
 
-Run the full test suite:
+Run tests:
 
 ```bash
 go test ./...
 ```
 
-Run fixture-based end-to-end tests:
+Run end-to-end fixture tests:
 
 ```bash
 go test ./internal/e2e
 ```
-
-Build a local release-style binary:
-
-```bash
-make build VERSION=0.1.0
-```
-
-## Roadmap
-
-`Done in v1`
-
-- repository scan
-- dependency extraction
-- framework detection
-- route extraction for supported frameworks
-- snapshot generation
-- Markdown rendering
-- snapshot diff
-- CI drift check/update workflow
-
-`Pinned for later`
-
-- richer architecture views beyond current summary graphs
-- deeper AST-based parsers for route and import extraction
-- more framework-specific analyzers
-- cloud/service detection expansion
-- plugin system
-
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the scoped roadmap.
