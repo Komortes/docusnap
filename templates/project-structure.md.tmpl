@@ -1,0 +1,42 @@
+# Project Structure
+
+## Repository Footprint
+
+| Metric | Value |
+|---|---|
+| Total files | {{ .ProjectStats.TotalFiles }} |
+| Source files | {{ .ProjectStats.SourceFiles }} |
+| Test files | {{ .ProjectStats.TestFiles }} |
+| Manifest files | {{ .ProjectStats.ManifestFiles }} |
+| Config files | {{ .ProjectStats.ConfigFiles }} |
+
+## Manifest Inventory
+{{- if .ManifestViews }}
+| Kind | Path |
+|---|---|
+{{- range .ManifestViews }}
+| {{ .Kind }} | {{ .Path }} |
+{{- end }}
+{{- else }}
+No manifests detected.
+{{- end }}
+
+## Entry Points
+{{- if .EntryPoints }}
+{{- range .EntryPoints }}
+- `{{ . }}`
+{{- end }}
+{{- else }}
+- n/a
+{{- end }}
+
+## Directory Layout
+{{- if .DirectoryViews }}
+| Path | Files | Source | Tests | Manifests | Config | Languages | Notable files |
+|---|---|---|---|---|---|---|---|
+{{- range .DirectoryViews }}
+| {{ .Path }} | {{ .FileCount }} | {{ .SourceFiles }} | {{ .TestFiles }} | {{ .ManifestFiles }} | {{ .ConfigFiles }} | {{ .LanguagesText }} | {{ .NotableFilesText }} |
+{{- end }}
+{{- else }}
+No directory layout detected.
+{{- end }}

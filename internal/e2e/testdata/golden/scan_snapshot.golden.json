@@ -1,4 +1,5 @@
 {
+  "projectName": "sample_repo",
   "projectPath": "<PROJECT_PATH>",
   "scannedAt": "<SCANNED_AT>",
   "languages": [
@@ -58,6 +59,29 @@
       "controller": "healthHandler"
     }
   ],
+  "apiGroups": [
+    {
+      "prefix": "/api",
+      "routeCount": 1,
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "prefix": "/py",
+      "routeCount": 1,
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "prefix": "/web",
+      "routeCount": 1,
+      "methods": [
+        "GET"
+      ]
+    }
+  ],
   "configFiles": [
     ".env",
     "docker-compose.yml"
@@ -72,5 +96,108 @@
     "go.mod",
     "package.json",
     "requirements.txt"
+  ],
+  "projectStats": {
+    "totalFiles": 14,
+    "sourceFiles": 7,
+    "testFiles": 0,
+    "manifestFiles": 5,
+    "configFiles": 2
+  },
+  "manifestFiles": [
+    {
+      "path": "go.mod",
+      "kind": "dependency"
+    },
+    {
+      "path": "package.json",
+      "kind": "dependency"
+    },
+    {
+      "path": "requirements.txt",
+      "kind": "dependency"
+    },
+    {
+      "path": "docker-compose.yml",
+      "kind": "infrastructure"
+    },
+    {
+      "path": ".env",
+      "kind": "runtime"
+    }
+  ],
+  "directoryLayout": [
+    {
+      "path": "root",
+      "fileCount": 8,
+      "sourceFiles": 1,
+      "testFiles": 0,
+      "manifestFiles": 5,
+      "configFiles": 2,
+      "languages": [
+        "go"
+      ],
+      "notableFiles": [
+        ".env",
+        "docker-compose.yml",
+        "go.mod",
+        "main.go",
+        "package.json"
+      ]
+    },
+    {
+      "path": "internal/server",
+      "fileCount": 1,
+      "sourceFiles": 1,
+      "testFiles": 0,
+      "manifestFiles": 0,
+      "configFiles": 0,
+      "languages": [
+        "go"
+      ],
+      "notableFiles": []
+    },
+    {
+      "path": "internal/store",
+      "fileCount": 1,
+      "sourceFiles": 1,
+      "testFiles": 0,
+      "manifestFiles": 0,
+      "configFiles": 0,
+      "languages": [
+        "go"
+      ],
+      "notableFiles": []
+    },
+    {
+      "path": "py",
+      "fileCount": 2,
+      "sourceFiles": 2,
+      "testFiles": 0,
+      "manifestFiles": 0,
+      "configFiles": 0,
+      "languages": [
+        "python"
+      ],
+      "notableFiles": []
+    },
+    {
+      "path": "web",
+      "fileCount": 2,
+      "sourceFiles": 2,
+      "testFiles": 0,
+      "manifestFiles": 0,
+      "configFiles": 0,
+      "languages": [
+        "javascript"
+      ],
+      "notableFiles": [
+        "web/server.js"
+      ]
+    }
+  ],
+  "entryPoints": [
+    "main.go",
+    "web/server.js"
   ]
 }

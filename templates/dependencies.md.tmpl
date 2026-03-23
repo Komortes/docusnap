@@ -1,5 +1,16 @@
 # Dependencies
 
+## Summary
+{{- if .DependencySummaries }}
+| Manager | Count |
+|---|---|
+{{- range .DependencySummaries }}
+| {{ .Name }} | {{ .Count }} |
+{{- end }}
+{{- else }}
+No dependencies detected.
+{{- end }}
+
 {{- if .DependencyManagers }}
 {{- range .DependencyManagers }}
 ## {{ . }}
@@ -11,10 +22,8 @@
 | {{ .Name }} | {{ .Version }} |
 {{- end }}
 {{- else }}
-No dependencies detected.
+No dependencies detected for this manager.
 {{- end }}
 
 {{- end }}
-{{- else }}
-No dependencies detected.
 {{- end }}

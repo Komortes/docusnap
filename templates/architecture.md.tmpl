@@ -1,5 +1,14 @@
 # Architecture
 
+## Technology View
+
+| Area | Signals |
+|---|---|
+| Languages | {{ .LanguagesText }} |
+| Frameworks | {{ .FrameworksText }} |
+| Package managers | {{ .PackageManagersText }} |
+| Infrastructure | {{ .InfrastructureText }} |
+
 ## Layer Diagram
 
 ~~~mermaid
@@ -9,6 +18,17 @@ Services --> Repositories
 Repositories --> Database
 ~~~
 
+## Project Structure Signals
+{{- if .DirectoryViews }}
+| Path | Files | Source | Tests |
+|---|---|---|---|
+{{- range .DirectoryViews }}
+| {{ .Path }} | {{ .FileCount }} | {{ .SourceFiles }} | {{ .TestFiles }} |
+{{- end }}
+{{- else }}
+No structure signals detected.
+{{- end }}
+
 {{- if .LaravelArchitectureMermaid }}
 ## Laravel Layer Graph
 
@@ -16,20 +36,4 @@ Derived from PHP namespace imports inside app/*.
 
 {{ .LaravelArchitectureMermaid }}
 
-{{- end }}
-
-## Technology View
-{{- if .Frameworks }}
-{{- range .Frameworks }}
-- Framework: {{ . }}
-{{- end }}
-{{- else }}
-- Framework: n/a
-{{- end }}
-{{- if .Infrastructure }}
-{{- range .Infrastructure }}
-- Infrastructure: {{ . }}
-{{- end }}
-{{- else }}
-- Infrastructure: n/a
 {{- end }}

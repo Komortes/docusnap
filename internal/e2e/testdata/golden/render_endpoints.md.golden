@@ -1,4 +1,18 @@
 # API Endpoints
+
+## Route Summary by Method
+| Method | Count |
+|---|---|
+| GET | 3 |
+
+## Route Groups
+| Prefix | Routes | Methods |
+|---|---|---|
+| /api | 1 | GET |
+| /py | 1 | GET |
+| /web | 1 | GET |
+
+## Route Inventory
 | Method | Path | Controller |
 |---|---|---|
 | GET | /api/health | server.Health |

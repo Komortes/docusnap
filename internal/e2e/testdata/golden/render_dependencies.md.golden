@@ -1,4 +1,11 @@
 # Dependencies
+
+## Summary
+| Manager | Count |
+|---|---|
+| go | 1 |
+| npm | 2 |
+| pip | 1 |
 ## go
 | Name | Version |
 |---|---|

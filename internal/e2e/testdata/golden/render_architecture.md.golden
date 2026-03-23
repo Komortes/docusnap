@@ -1,5 +1,14 @@
 # Architecture
 
+## Technology View
+
+| Area | Signals |
+|---|---|
+| Languages | go, javascript, python |
+| Frameworks | express, fastapi, gin, react |
+| Package managers | go, npm, pip |
+| Infrastructure | docker, env-file, postgres, redis |
+
 ## Layer Diagram
 
 ~~~mermaid
@@ -9,12 +18,11 @@ Services --> Repositories
 Repositories --> Database
 ~~~
 
-## Technology View
-- Framework: express
-- Framework: fastapi
-- Framework: gin
-- Framework: react
-- Infrastructure: docker
-- Infrastructure: env-file
-- Infrastructure: postgres
-- Infrastructure: redis
+## Project Structure Signals
+| Path | Files | Source | Tests |
+|---|---|---|---|
+| root | 8 | 1 | 0 |
+| internal/server | 1 | 1 | 0 |
+| internal/store | 1 | 1 | 0 |
+| py | 2 | 2 | 0 |
+| web | 2 | 2 | 0 |

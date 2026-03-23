@@ -45,6 +45,17 @@ func RenderSummary(snap model.Snapshot) string {
 		fmt.Fprintf(&b, "\n")
 	}
 
+	fmt.Fprintf(&b, "Repository shape\n")
+	if snap.ProjectStats.TotalFiles == 0 {
+		fmt.Fprintf(&b, "- files: n/a\n\n")
+	} else {
+		fmt.Fprintf(&b, "- total files: %d\n", snap.ProjectStats.TotalFiles)
+		fmt.Fprintf(&b, "- source files: %d\n", snap.ProjectStats.SourceFiles)
+		fmt.Fprintf(&b, "- test files: %d\n", snap.ProjectStats.TestFiles)
+		fmt.Fprintf(&b, "- manifest files: %d\n", snap.ProjectStats.ManifestFiles)
+		fmt.Fprintf(&b, "- config files: %d\n\n", snap.ProjectStats.ConfigFiles)
+	}
+
 	fmt.Fprintf(&b, "Dependencies\n")
 	managers := make([]string, 0, len(snap.Dependencies))
 	for manager := range snap.Dependencies {
@@ -78,6 +89,16 @@ func RenderSummary(snap model.Snapshot) string {
 		}
 	}
 	fmt.Fprintf(&b, "\n")
+
+	fmt.Fprintf(&b, "API groups\n")
+	if len(snap.APIGroups) == 0 {
+		fmt.Fprintf(&b, "- n/a\n\n")
+	} else {
+		for _, group := range snap.APIGroups {
+			fmt.Fprintf(&b, "- %s: %d (%s)\n", group.Prefix, group.RouteCount, strings.Join(group.Methods, ", "))
+		}
+		fmt.Fprintf(&b, "\n")
+	}
 
 	fmt.Fprintf(&b, "Services\n")
 	if len(snap.Infrastructure) == 0 {

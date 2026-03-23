@@ -20,6 +20,18 @@ var techMarkers = []string{
 	"Cargo.toml",
 	"requirements.txt",
 	"pyproject.toml",
+	"pom.xml",
+	"build.gradle",
+	"build.gradle.kts",
+	"openapi.yaml",
+	"openapi.yml",
+	"openapi.json",
+	"swagger.yaml",
+	"swagger.yml",
+	"swagger.json",
+	"next.config.js",
+	"next.config.mjs",
+	"next.config.ts",
 }
 
 var configMarkers = []string{
@@ -45,6 +57,8 @@ func Scan(root string) (model.Snapshot, error) {
 		return model.Snapshot{}, err
 	}
 
+	structure := newStructureCollector(rootAbs)
+
 	techMarkerLookup := make(map[string]struct{}, len(techMarkers))
 	for _, marker := range techMarkers {
 		techMarkerLookup[marker] = struct{}{}
@@ -66,6 +80,10 @@ func Scan(root string) (model.Snapshot, error) {
 	foundFastAPIRoutes := false
 	foundFlaskRoutes := false
 	foundDjangoRoutes := false
+	foundNextJSRoutes := false
+	foundOpenAPIRoutes := false
+	foundAspNetRoutes := false
+	foundSpringRoutes := false
 
 	err = filepath.WalkDir(rootAbs, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -74,7 +92,7 @@ func Scan(root string) (model.Snapshot, error) {
 
 		if d.IsDir() {
 			base := d.Name()
-			if base == ".git" || base == "node_modules" || base == "vendor" || strings.HasPrefix(base, ".") {
+			if base == ".git" || base == "node_modules" || base == "vendor" || base == "target" || base == "build" || base == "dist" || base == "out" || strings.HasPrefix(base, ".") {
 				if path != rootAbs {
 					return filepath.SkipDir
 				}
@@ -83,18 +101,33 @@ func Scan(root string) (model.Snapshot, error) {
 		}
 
 		base := filepath.Base(path)
-		if _, ok := techMarkerLookup[base]; ok {
-			rel, relErr := filepath.Rel(rootAbs, path)
-			if relErr != nil {
-				rel = base
-			}
+		rel, relErr := filepath.Rel(rootAbs, path)
+		if relErr != nil {
+			rel = base
+		}
+		rel = filepath.ToSlash(rel)
+
+		manifestKind := ""
+		isConfigFile := false
+		if _, ok := techMarkerLookup[base]; ok || isDotNetProjectFile(base) {
 			foundTechFiles[rel] = struct{}{}
+			manifestKind = manifestKindForFile(path, base)
 
 			switch base {
 			case "package.json":
 				deps, err := parsePackageJSON(path)
 				if err == nil && len(deps) > 0 {
 					dependencies["npm"] = append(dependencies["npm"], deps...)
+				}
+			case "pom.xml":
+				deps, err := parsePomXML(path)
+				if err == nil && len(deps) > 0 {
+					dependencies["maven"] = append(dependencies["maven"], deps...)
+				}
+			case "build.gradle", "build.gradle.kts":
+				deps, err := parseGradleFile(path)
+				if err == nil && len(deps) > 0 {
+					dependencies["gradle"] = append(dependencies["gradle"], deps...)
 				}
 			case "composer.json":
 				deps, err := parseComposerJSON(path)
@@ -127,22 +160,30 @@ func Scan(root string) (model.Snapshot, error) {
 					}
 				}
 			}
+			if isDotNetProjectFile(base) {
+				deps, err := parseCsproj(path)
+				if err == nil && len(deps) > 0 {
+					dependencies["nuget"] = append(dependencies["nuget"], deps...)
+				}
+			}
 		}
 
 		if _, ok := configMarkerLookup[base]; ok {
-			rel, relErr := filepath.Rel(rootAbs, path)
-			if relErr != nil {
-				rel = base
-			}
 			foundConfigFiles[rel] = struct{}{}
+			isConfigFile = true
+			if manifestKind == "" {
+				manifestKind = manifestKindForFile(path, base)
+			}
 		}
 		if isEnvConfigFile(base) || isTerraformConfigFile(base) || isKubernetesConfigCandidate(path, base) {
-			rel, relErr := filepath.Rel(rootAbs, path)
-			if relErr != nil {
-				rel = base
-			}
 			foundConfigFiles[rel] = struct{}{}
+			isConfigFile = true
+			if manifestKind == "" {
+				manifestKind = manifestKindForFile(path, base)
+			}
 		}
+
+		structure.recordFile(rootAbs, path, manifestKind, isConfigFile)
 
 		if isLaravelRoutesFile(path, base) {
 			parsedRoutes, err := parseLaravelRoutes(path)
@@ -151,11 +192,29 @@ func Scan(root string) (model.Snapshot, error) {
 				foundLaravelRoutes = true
 			}
 		}
+		if isOpenAPIFile(path, base) {
+			parsedRoutes, usedOpenAPI, err := parseOpenAPIRoutes(path)
+			if err == nil {
+				if len(parsedRoutes) > 0 {
+					routes = append(routes, parsedRoutes...)
+				}
+				foundOpenAPIRoutes = foundOpenAPIRoutes || usedOpenAPI
+			}
+		}
 		if isExpressRoutesFile(path) {
 			parsedRoutes, err := parseExpressRoutes(path)
 			if err == nil && len(parsedRoutes) > 0 {
 				routes = append(routes, parsedRoutes...)
 				foundExpressRoutes = true
+			}
+		}
+		if isNextJSAPIFile(path) {
+			parsedRoutes, usedNextJS, err := parseNextJSAPIRoutes(path)
+			if err == nil {
+				if len(parsedRoutes) > 0 {
+					routes = append(routes, parsedRoutes...)
+				}
+				foundNextJSRoutes = foundNextJSRoutes || usedNextJS
 			}
 		}
 		if isGoRoutesFile(path) {
@@ -185,6 +244,24 @@ func Scan(root string) (model.Snapshot, error) {
 				}
 			}
 		}
+		if isDotNetRoutesFile(path) {
+			parsedRoutes, usedAspNet, err := parseDotNetRoutes(path)
+			if err == nil {
+				if len(parsedRoutes) > 0 {
+					routes = append(routes, parsedRoutes...)
+				}
+				foundAspNetRoutes = foundAspNetRoutes || usedAspNet
+			}
+		}
+		if isJavaRoutesFile(path) {
+			parsedRoutes, usedSpring, err := parseSpringRoutes(path)
+			if err == nil {
+				if len(parsedRoutes) > 0 {
+					routes = append(routes, parsedRoutes...)
+				}
+				foundSpringRoutes = foundSpringRoutes || usedSpring
+			}
+		}
 
 		return nil
 	})
@@ -204,6 +281,7 @@ func Scan(root string) (model.Snapshot, error) {
 	frameworks := sortedSet(frameworkSet)
 	infrastructure := detectInfrastructureServices(rootAbs, configs)
 	routes = deduplicateRoutes(routes)
+	apiGroups := buildAPIGroups(routes)
 	if foundLaravelRoutes {
 		frameworkSet["laravel"] = struct{}{}
 	}
@@ -225,11 +303,24 @@ func Scan(root string) (model.Snapshot, error) {
 	if foundDjangoRoutes {
 		frameworkSet["django"] = struct{}{}
 	}
-	if foundLaravelRoutes || foundExpressRoutes || foundGinRoutes || foundEchoRoutes || foundFastAPIRoutes || foundFlaskRoutes || foundDjangoRoutes {
+	if foundNextJSRoutes {
+		frameworkSet["next.js"] = struct{}{}
+	}
+	if foundOpenAPIRoutes {
+		frameworkSet["openapi"] = struct{}{}
+	}
+	if foundAspNetRoutes {
+		frameworkSet["asp.net"] = struct{}{}
+	}
+	if foundSpringRoutes {
+		frameworkSet["spring"] = struct{}{}
+	}
+	if foundLaravelRoutes || foundExpressRoutes || foundGinRoutes || foundEchoRoutes || foundFastAPIRoutes || foundFlaskRoutes || foundDjangoRoutes || foundNextJSRoutes || foundOpenAPIRoutes || foundAspNetRoutes || foundSpringRoutes {
 		frameworks = sortedSet(frameworkSet)
 	}
 
 	return model.Snapshot{
+		ProjectName:     structure.projectName,
 		ProjectPath:     rootAbs,
 		ScannedAt:       time.Now().UTC().Format(time.RFC3339),
 		Languages:       languages,
@@ -237,9 +328,14 @@ func Scan(root string) (model.Snapshot, error) {
 		Frameworks:      frameworks,
 		Dependencies:    dependencies,
 		Routes:          routes,
+		APIGroups:       apiGroups,
 		ConfigFiles:     configs,
 		Infrastructure:  infrastructure,
 		DetectedFiles:   detectedFiles,
+		ProjectStats:    structure.projectStats(),
+		ManifestFiles:   structure.manifestFiles(),
+		DirectoryLayout: structure.directoryLayout(),
+		EntryPoints:     structure.entryPointList(),
 	}, nil
 }
 
@@ -259,6 +355,18 @@ func detectLanguagesAndManagers(found []string) ([]string, []string) {
 		if strings.HasSuffix(file, "go.mod") {
 			languageSet["go"] = struct{}{}
 			managerSet["go"] = struct{}{}
+		}
+		if strings.HasSuffix(strings.ToLower(file), "pom.xml") {
+			languageSet["java"] = struct{}{}
+			managerSet["maven"] = struct{}{}
+		}
+		if strings.HasSuffix(strings.ToLower(file), "build.gradle") || strings.HasSuffix(strings.ToLower(file), "build.gradle.kts") {
+			languageSet["java"] = struct{}{}
+			managerSet["gradle"] = struct{}{}
+		}
+		if strings.HasSuffix(strings.ToLower(file), ".csproj") {
+			languageSet["csharp"] = struct{}{}
+			managerSet["nuget"] = struct{}{}
 		}
 		if strings.HasSuffix(file, "Cargo.toml") {
 			languageSet["rust"] = struct{}{}
@@ -673,10 +781,14 @@ func detectFrameworksFromDependencies(manager string, deps []model.Dependency, s
 			set["next.js"] = struct{}{}
 		case manager == "npm" && (n == "@angular/core" || n == "angular"):
 			set["angular"] = struct{}{}
+		case (manager == "maven" || manager == "gradle") && (strings.HasSuffix(n, ":spring-boot-starter-web") || strings.HasSuffix(n, ":spring-webmvc") || strings.HasSuffix(n, ":spring-web") || strings.HasSuffix(n, ":spring-boot-starter-webflux")):
+			set["spring"] = struct{}{}
 		case manager == "go" && n == "github.com/gin-gonic/gin":
 			set["gin"] = struct{}{}
 		case manager == "go" && n == "github.com/labstack/echo/v4":
 			set["echo"] = struct{}{}
+		case manager == "nuget" && strings.Contains(n, "aspnetcore"):
+			set["asp.net"] = struct{}{}
 		case (manager == "pip" || manager == "poetry") && n == "django":
 			set["django"] = struct{}{}
 		case (manager == "pip" || manager == "poetry") && n == "fastapi":

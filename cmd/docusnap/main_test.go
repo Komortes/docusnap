@@ -13,6 +13,7 @@ func TestRunRenderUsesPathForSnapshotAndOutput(t *testing.T) {
 	projectDir := t.TempDir()
 
 	snap := model.Snapshot{
+		ProjectName:     "app",
 		ProjectPath:     projectDir,
 		ScannedAt:       "2026-03-06T00:00:00Z",
 		Languages:       []string{"php"},
@@ -38,8 +39,41 @@ func TestRunRenderUsesPathForSnapshotAndOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read generated README: %v", err)
 	}
-	if !strings.Contains(string(data), "- laravel") {
+	if !strings.Contains(string(data), "| Frameworks | laravel |") {
 		t.Fatalf("expected README to use snapshot from --path, got:\n%s", string(data))
+	}
+}
+
+func TestRunRenderSupportsHTMLFormat(t *testing.T) {
+	projectDir := t.TempDir()
+
+	snap := model.Snapshot{
+		ProjectName: "app",
+		ProjectPath: projectDir,
+		ScannedAt:   "2026-03-06T00:00:00Z",
+		Languages:   []string{"go"},
+		Routes: []model.Route{
+			{Method: "GET", Path: "/health", Controller: "Health"},
+		},
+	}
+
+	snapshotPath := filepath.Join(projectDir, "snapshot.json")
+	if err := model.WriteSnapshot(snapshotPath, snap, true); err != nil {
+		t.Fatalf("write snapshot: %v", err)
+	}
+
+	runRender([]string{"--path", projectDir, "--snapshot", "snapshot.json", "--out", "site", "--format", "html"})
+
+	htmlPath := filepath.Join(projectDir, "site", "index.html")
+	data, err := os.ReadFile(htmlPath)
+	if err != nil {
+		t.Fatalf("read html documentation: %v", err)
+	}
+	if !strings.Contains(string(data), "<!DOCTYPE html>") {
+		t.Fatalf("expected HTML output, got:\n%s", string(data))
+	}
+	if !strings.Contains(string(data), "/health") {
+		t.Fatalf("expected route inventory in HTML output, got:\n%s", string(data))
 	}
 }
 

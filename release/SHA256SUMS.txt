@@ -1,0 +1,5 @@
+d1e3a027bde673659e90dbcd9ffbdf6d241dc28c8ad713c3b401e2bef897f36c  ./docusnap-v0.0.0-test-darwin-amd64.tar.gz
+1fd4d5a470fda49b81d587af0922a1bd4248b467325360a182d527a855888645  ./docusnap-v0.0.0-test-darwin-arm64.tar.gz
+a20799d31a6e6eb8569dd96a0530219c27c090ced25c929f35f571cf5f19510c  ./docusnap-v0.0.0-test-linux-amd64.tar.gz
+749f18fce79e1714589e5de8e28bba8839bc4a1803b7b42181112addecd7f5c5  ./docusnap-v0.0.0-test-linux-arm64.tar.gz
+37e47de1a6394ea17aee51b0b0ca424484433c9452bc35e3ee206b8da8d5af64  ./docusnap-v0.0.0-test-windows-amd64.zip

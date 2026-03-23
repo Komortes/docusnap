@@ -20,27 +20,8 @@ concurrency:
 
 jobs:
   build-release:
-    name: Build Release Artifacts
+    name: Build Release Bundle
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - goos: linux
-            goarch: amd64
-            archive: tar.gz
-          - goos: linux
-            goarch: arm64
-            archive: tar.gz
-          - goos: darwin
-            goarch: amd64
-            archive: tar.gz
-          - goos: darwin
-            goarch: arm64
-            archive: tar.gz
-          - goos: windows
-            goarch: amd64
-            archive: zip
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -76,48 +57,18 @@ jobs:
       - name: Run tests
         run: go test ./...
 
-      - name: Build binary
+      - name: Build release artifacts
         env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: 0
           VERSION: ${{ steps.meta.outputs.version }}
           COMMIT: ${{ steps.meta.outputs.commit }}
           DATE: ${{ steps.meta.outputs.date }}
-        shell: bash
-        run: |
-          mkdir -p dist
-          ext=""
-          if [[ "${GOOS}" == "windows" ]]; then
-            ext=".exe"
-          fi
-          output="dist/docusnap-${VERSION}-${GOOS}-${GOARCH}${ext}"
-          go build -ldflags "-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${DATE}" -o "${output}" ./cmd/docusnap
+        run: make dist
 
-      - name: Package artifact
-        id: package
-        env:
-          VERSION: ${{ steps.meta.outputs.version }}
-        shell: bash
-        run: |
-          mkdir -p release
-          base="docusnap-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}"
-          if [[ "${{ matrix.goos }}" == "windows" ]]; then
-            artifact="${base}.zip"
-            cd dist
-            zip "../release/${artifact}" "docusnap-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}.exe"
-          else
-            artifact="${base}.tar.gz"
-            cd dist
-            tar -czf "../release/${artifact}" "docusnap-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}"
-          fi
-          echo "artifact=${artifact}" >> "${GITHUB_OUTPUT}"
-
-      - name: Upload packaged artifact
+      - name: Upload release bundle
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.package.outputs.artifact }}
-          path: release/${{ steps.package.outputs.artifact }}
+          name: docusnap-release-bundle
+          path: release
           if-no-files-found: error
 
   publish-release:
@@ -141,11 +92,6 @@ jobs:
         with:
           path: release-artifacts
 
-      - name: Generate checksums
-        shell: bash
-        run: |
-          find release-artifacts -type f -print0 | sort -z | xargs -0 shasum -a 256 > release-artifacts/SHA256SUMS.txt
-
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
@@ -154,4 +100,6 @@ jobs:
           files: |
             release-artifacts/**/*.tar.gz
             release-artifacts/**/*.zip
-            release-artifacts/SHA256SUMS.txt
+            release-artifacts/**/docusnap.rb
+            release-artifacts/**/install.sh
+            release-artifacts/**/SHA256SUMS.txt

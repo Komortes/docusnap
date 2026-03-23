@@ -14,6 +14,7 @@ func TestGenerateIncludesDependencyGraph(t *testing.T) {
 	outDir := filepath.Join(projectDir, "docs")
 
 	snap := model.Snapshot{
+		ProjectName: "proj",
 		ProjectPath: projectDir,
 		Dependencies: map[string][]model.Dependency{
 			"npm": {
@@ -97,7 +98,7 @@ func TestGenerateIncludesModuleGraph(t *testing.T) {
 		t.Fatalf("write a_test.go: %v", err)
 	}
 
-	snap := model.Snapshot{ProjectPath: projectDir}
+	snap := model.Snapshot{ProjectName: "proj", ProjectPath: projectDir}
 	if _, err := Generate(snap, outDir); err != nil {
 		t.Fatalf("generate docs: %v", err)
 	}
@@ -204,7 +205,7 @@ class OrderControllerTest {}
 		t.Fatalf("write php test: %v", err)
 	}
 
-	snap := model.Snapshot{ProjectPath: projectDir}
+	snap := model.Snapshot{ProjectName: "proj", ProjectPath: projectDir}
 	if _, err := Generate(snap, outDir); err != nil {
 		t.Fatalf("generate docs: %v", err)
 	}
@@ -296,6 +297,7 @@ class Order {}
 	}
 
 	snap := model.Snapshot{
+		ProjectName: "proj",
 		ProjectPath: projectDir,
 		Frameworks:  []string{"laravel"},
 	}
@@ -319,5 +321,105 @@ class Order {}
 		!strings.Contains(content, "L_Actions --> L_Services") ||
 		!strings.Contains(content, "L_Services --> L_Models") {
 		t.Fatalf("expected Laravel layer edges, got:\n%s", content)
+	}
+}
+
+func TestGenerateIncludesProjectStructureDocument(t *testing.T) {
+	projectDir := t.TempDir()
+	outDir := filepath.Join(projectDir, "docs")
+
+	snap := model.Snapshot{
+		ProjectName: "proj",
+		ProjectPath: projectDir,
+		ProjectStats: model.ProjectStats{
+			TotalFiles:    12,
+			SourceFiles:   6,
+			TestFiles:     2,
+			ManifestFiles: 2,
+			ConfigFiles:   1,
+		},
+		ManifestFiles: []model.ManifestFile{
+			{Kind: "dependency", Path: "package.json"},
+			{Kind: "runtime", Path: ".env"},
+		},
+		DirectoryLayout: []model.DirectorySummary{
+			{
+				Path:          "root",
+				FileCount:     3,
+				SourceFiles:   1,
+				ManifestFiles: 2,
+				NotableFiles:  []string{"package.json", ".env"},
+			},
+			{
+				Path:         "src",
+				FileCount:    5,
+				SourceFiles:  5,
+				Languages:    []string{"javascript"},
+				NotableFiles: []string{"src/index.js"},
+			},
+		},
+		EntryPoints: []string{"src/index.js"},
+	}
+
+	if _, err := Generate(snap, outDir); err != nil {
+		t.Fatalf("generate docs: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(outDir, "project-structure.md"))
+	if err != nil {
+		t.Fatalf("read project structure file: %v", err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "# Project Structure") {
+		t.Fatalf("expected project structure heading, got:\n%s", content)
+	}
+	if !strings.Contains(content, "package.json") || !strings.Contains(content, "src/index.js") {
+		t.Fatalf("expected manifest and entry point details, got:\n%s", content)
+	}
+}
+
+func TestGenerateSupportsHTMLOutput(t *testing.T) {
+	projectDir := t.TempDir()
+	outDir := filepath.Join(projectDir, "docs")
+
+	snap := model.Snapshot{
+		ProjectName: "proj",
+		ProjectPath: projectDir,
+		ProjectStats: model.ProjectStats{
+			TotalFiles:    4,
+			SourceFiles:   2,
+			ManifestFiles: 1,
+		},
+		DirectoryLayout: []model.DirectorySummary{
+			{
+				Path:         "root",
+				FileCount:    2,
+				SourceFiles:  1,
+				NotableFiles: []string{"main.go"},
+			},
+		},
+		Routes: []model.Route{
+			{Method: "GET", Path: "/health", Controller: "Health"},
+		},
+	}
+
+	files, err := GenerateWithOptions(snap, outDir, GenerateOptions{Format: FormatHTML})
+	if err != nil {
+		t.Fatalf("generate html docs: %v", err)
+	}
+	if len(files) != 1 || filepath.Base(files[0]) != "index.html" {
+		t.Fatalf("expected only index.html, got: %#v", files)
+	}
+
+	data, err := os.ReadFile(filepath.Join(outDir, "index.html"))
+	if err != nil {
+		t.Fatalf("read html output: %v", err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "<!DOCTYPE html>") {
+		t.Fatalf("expected HTML document, got:\n%s", content)
+	}
+	if !strings.Contains(content, "Project Structure") || !strings.Contains(content, "/health") {
+		t.Fatalf("expected rendered sections in html output, got:\n%s", content)
 	}
 }

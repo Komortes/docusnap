@@ -2,15 +2,19 @@
 
 DocuSnap is a local-first CLI for scanning repositories, generating documentation from real code and config files, and comparing repository snapshots between versions.
 
-Instead of maintaining hand-written docs that drift over time, the tool extracts what the project actually uses and turns it into Markdown and machine-readable output.
+Instead of maintaining hand-written docs that drift over time, the tool extracts what the project actually uses and turns it into Markdown, HTML, and machine-readable output.
 
 ## Highlights
 
 - scans a repository and generates `snapshot.json`
 - detects languages, package managers, frameworks, and infrastructure signals
 - extracts dependencies from common ecosystem files
-- finds API routes for supported stacks
-- renders Markdown docs and Mermaid graphs
+- finds API routes for supported stacks, OpenAPI specs, Next.js API handlers, and ASP.NET apps
+- detects Java repositories via Maven and Gradle manifests and extracts Spring routes
+- builds project structure, manifest inventory, dependency summaries, and API inventory
+- renders Markdown docs, Mermaid graphs, and a ready-to-open HTML documentation page
+- includes a CI mode for reproducible checks and updates
+- ships packaged release artifacts, checksums, a Homebrew formula, and an installer script
 - compares old and new snapshots with a readable diff
 - works locally and in CI
 
@@ -52,13 +56,13 @@ Check build metadata:
 Run against the current repository:
 
 ```bash
-go run ./cmd/docusnap run --path .
+go run ./cmd/docusnap run --path . --format both
 ```
 
 Run against another local repository:
 
 ```bash
-go run ./cmd/docusnap run --path /absolute/path/to/project
+go run ./cmd/docusnap generate --path /absolute/path/to/project --format html
 ```
 
 ## Install
@@ -75,6 +79,12 @@ Direct Go install:
 go install ./cmd/docusnap
 ```
 
+Installer script from the latest GitHub release:
+
+```bash
+curl -fsSL https://github.com/oleksandrskoruk/docusnap/releases/latest/download/install.sh | bash
+```
+
 Version metadata is injected through `ldflags`. If the current commit is tagged, the build uses that exact tag. Otherwise it falls back to `dev-<short-sha>`.
 
 ## Commands
@@ -82,25 +92,32 @@ Version metadata is injected through `ldflags`. If the current commit is tagged,
 - `docusnap version` - show build version, commit, and build time
 - `docusnap scan --path . --out snapshot.json` - scan a repository and write a snapshot
 - `docusnap analyze --path .` - print a project summary
-- `docusnap render --path . --snapshot snapshot.json --out docs` - render docs from a snapshot
-- `docusnap run --path .` - scan and render in one step
+- `docusnap render --path . --snapshot snapshot.json --out docs --format markdown` - render docs from a snapshot
+- `docusnap run --path . --format both` - scan and render markdown plus HTML in one step
+- `docusnap generate --path /absolute/path/to/project --format html` - alias for `run`, useful for one-shot documentation generation
+- `docusnap ci --path . --mode check --format markdown` - verify generated snapshot and docs are up to date
+- `docusnap ci --path . --mode update --format markdown` - rewrite generated snapshot and docs in place
 - `docusnap diff old.json new.json` - compare two snapshots
 
 ## What It Generates
 
 - `snapshot.json`
 - `docs/README.generated.md`
+- `docs/project-structure.md`
 - `docs/dependencies.md`
 - `docs/endpoints.md`
 - `docs/architecture.md`
 - `docs/module-graph.md`
 - `docs/dependency-graph.md`
+- `docs/index.html` when `--format html` or `--format both`
 
 ## Supported Detection
 
 Languages:
 
 - `Go`
+- `C#`
+- `Java`
 - `PHP`
 - `JavaScript / TypeScript`
 - `Python`
@@ -114,17 +131,24 @@ Package managers:
 - `pip`
 - `poetry`
 - `cargo`
+- `nuget`
+- `maven`
+- `gradle`
 
 Framework signals:
 
 - `Laravel`
 - `React`
 - `Express`
+- `Next.js`
 - `FastAPI`
 - `Flask`
 - `Django`
 - `Gin`
 - `Echo`
+- `ASP.NET`
+- `Spring`
+- `OpenAPI`
 
 Infrastructure hints:
 
@@ -144,7 +168,37 @@ go run ./cmd/docusnap scan --path /absolute/path/to/project --out /absolute/path
 Render docs:
 
 ```bash
-go run ./cmd/docusnap render --path /absolute/path/to/project --snapshot /absolute/path/to/project/snapshot.json --out /absolute/path/to/project/docs
+go run ./cmd/docusnap render --path /absolute/path/to/project --snapshot /absolute/path/to/project/snapshot.json --out /absolute/path/to/project/docs --format markdown
+```
+
+Render an HTML documentation page:
+
+```bash
+go run ./cmd/docusnap generate --path /absolute/path/to/project --docs /absolute/path/to/project/docs --format html
+```
+
+Render both Markdown and HTML:
+
+```bash
+go run ./cmd/docusnap run --path /absolute/path/to/project --docs /absolute/path/to/project/docs --format both
+```
+
+Run CI verification locally:
+
+```bash
+go run ./cmd/docusnap ci --path /absolute/path/to/project --snapshot /absolute/path/to/project/snapshot.json --docs /absolute/path/to/project/docs --format markdown --mode check
+```
+
+Refresh generated artifacts in place:
+
+```bash
+go run ./cmd/docusnap ci --path /absolute/path/to/project --snapshot /absolute/path/to/project/snapshot.json --docs /absolute/path/to/project/docs --format markdown --mode update
+```
+
+Build release archives locally:
+
+```bash
+make dist VERSION=v0.1.0
 ```
 
 Compare two versions:
@@ -168,7 +222,7 @@ It supports two modes:
 - `check` - regenerate docs and fail if tracked artifacts are outdated
 - `update` - regenerate docs and commit updated artifacts back to the branch
 
-This is the main CI workflow for keeping generated documentation reproducible.
+The workflow now runs the dedicated `docusnap ci` command and auto-refreshes generated docs on same-repository pull requests before pushing the result back to the PR branch.
 
 ## Releases
 
@@ -184,9 +238,11 @@ git push origin v0.1.0
 The release workflow:
 
 - runs the test suite
-- builds binaries for Linux, macOS, and Windows
-- packages release archives
-- generates checksums
+- builds a bundled release for Linux, macOS, and Windows
+- packages archives with the binary, `README.md`, and installer script
+- generates `SHA256SUMS.txt`
+- emits `docusnap.rb` for Homebrew distribution
+- uploads `install.sh` as a release asset
 - publishes assets to GitHub Releases
 
 ## Limitations

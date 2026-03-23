@@ -14,6 +14,13 @@ func TestRenderSummaryIncludesDependencyAndRouteBreakdown(t *testing.T) {
 		Frameworks:      []string{"gin", "react"},
 		PackageManagers: []string{"go", "npm"},
 		Infrastructure:  []string{"docker", "redis"},
+		ProjectStats: model.ProjectStats{
+			TotalFiles:    24,
+			SourceFiles:   10,
+			TestFiles:     4,
+			ManifestFiles: 3,
+			ConfigFiles:   2,
+		},
 		Dependencies: map[string][]model.Dependency{
 			"go": {
 				{Name: "github.com/gin-gonic/gin", Version: "v1.10.0"},
@@ -28,6 +35,10 @@ func TestRenderSummaryIncludesDependencyAndRouteBreakdown(t *testing.T) {
 			{Method: "GET", Path: "/api/orders", Controller: "listOrders"},
 			{Method: "POST", Path: "/api/orders", Controller: "createOrder"},
 		},
+		APIGroups: []model.APIGroup{
+			{Prefix: "/api", RouteCount: 2, Methods: []string{"GET", "POST"}},
+			{Prefix: "/health", RouteCount: 1, Methods: []string{"GET"}},
+		},
 	}
 
 	out := RenderSummary(snap)
@@ -36,6 +47,10 @@ func TestRenderSummaryIncludesDependencyAndRouteBreakdown(t *testing.T) {
 		"Package managers",
 		"- go",
 		"- npm",
+		"Repository shape",
+		"- total files: 24",
+		"- source files: 10",
+		"- test files: 4",
 		"Dependencies",
 		"- go: 1",
 		"- npm: 2",
@@ -44,6 +59,8 @@ func TestRenderSummaryIncludesDependencyAndRouteBreakdown(t *testing.T) {
 		"- 3 routes detected",
 		"- GET: 2",
 		"- POST: 1",
+		"API groups",
+		"- /api: 2 (GET, POST)",
 	}
 
 	for _, check := range checks {

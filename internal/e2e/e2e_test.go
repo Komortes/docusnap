@@ -48,12 +48,13 @@ func TestFixtureRenderMatchesGoldens(t *testing.T) {
 	}
 
 	files := map[string]string{
-		"README.generated.md": "render_README.generated.md.golden",
-		"dependencies.md":     "render_dependencies.md.golden",
-		"endpoints.md":        "render_endpoints.md.golden",
-		"dependency-graph.md": "render_dependency-graph.md.golden",
-		"module-graph.md":     "render_module-graph.md.golden",
-		"architecture.md":     "render_architecture.md.golden",
+		"README.generated.md":  "render_README.generated.md.golden",
+		"project-structure.md": "render_project-structure.md.golden",
+		"dependencies.md":      "render_dependencies.md.golden",
+		"endpoints.md":         "render_endpoints.md.golden",
+		"dependency-graph.md":  "render_dependency-graph.md.golden",
+		"module-graph.md":      "render_module-graph.md.golden",
+		"architecture.md":      "render_architecture.md.golden",
 	}
 
 	for generated, golden := range files {

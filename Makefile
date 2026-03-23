@@ -19,3 +19,11 @@ install:
 .PHONY: test
 test:
 	go test ./...
+
+.PHONY: dist
+dist:
+	VERSION=$(VERSION) COMMIT=$(COMMIT) DATE=$(DATE) ./scripts/build-release.sh
+
+.PHONY: clean-dist
+clean-dist:
+	rm -rf dist release

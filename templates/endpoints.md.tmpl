@@ -1,5 +1,28 @@
 # API Endpoints
 
+## Route Summary by Method
+{{- if .RouteMethodSummaries }}
+| Method | Count |
+|---|---|
+{{- range .RouteMethodSummaries }}
+| {{ .Method }} | {{ .Count }} |
+{{- end }}
+{{- else }}
+No endpoints detected for the current project.
+{{- end }}
+
+## Route Groups
+{{- if .APIGroupViews }}
+| Prefix | Routes | Methods |
+|---|---|---|
+{{- range .APIGroupViews }}
+| {{ .Prefix }} | {{ .RouteCount }} | {{ .MethodsText }} |
+{{- end }}
+{{- else }}
+No route groups detected.
+{{- end }}
+
+## Route Inventory
 {{- if .Routes }}
 | Method | Path | Controller |
 |---|---|---|

@@ -1,0 +1,33 @@
+# Project Structure
+
+## Repository Footprint
+
+| Metric | Value |
+|---|---|
+| Total files | 14 |
+| Source files | 7 |
+| Test files | 0 |
+| Manifest files | 5 |
+| Config files | 2 |
+
+## Manifest Inventory
+| Kind | Path |
+|---|---|
+| dependency | go.mod |
+| dependency | package.json |
+| dependency | requirements.txt |
+| infrastructure | docker-compose.yml |
+| runtime | .env |
+
+## Entry Points
+- `main.go`
+- `web/server.js`
+
+## Directory Layout
+| Path | Files | Source | Tests | Manifests | Config | Languages | Notable files |
+|---|---|---|---|---|---|---|---|
+| root | 8 | 1 | 0 | 5 | 2 | go | .env, docker-compose.yml, go.mod, main.go, package.json |
+| internal/server | 1 | 1 | 0 | 0 | 0 | go | n/a |
+| internal/store | 1 | 1 | 0 | 0 | 0 | go | n/a |
+| py | 2 | 2 | 0 | 0 | 0 | python | n/a |
+| web | 2 | 2 | 0 | 0 | 0 | javascript | web/server.js |

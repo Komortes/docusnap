@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/oleksandrskoruk/docusnap/internal/analyzer"
+	docci "github.com/oleksandrskoruk/docusnap/internal/ci"
 	"github.com/oleksandrskoruk/docusnap/internal/diff"
 	"github.com/oleksandrskoruk/docusnap/internal/model"
 	"github.com/oleksandrskoruk/docusnap/internal/render"
@@ -37,6 +38,10 @@ func main() {
 		runRender(os.Args[2:])
 	case "run":
 		runFullRun(os.Args[2:])
+	case "generate":
+		runFullRun(os.Args[2:])
+	case "ci":
+		runCI(os.Args[2:])
 	case "version":
 		runVersion()
 	default:
@@ -125,6 +130,7 @@ func runRender(args []string) {
 	path := fs.String("path", ".", "Path to project")
 	snapshotPath := fs.String("snapshot", "snapshot.json", "Snapshot file path")
 	outDir := fs.String("out", "docs", "Output docs directory")
+	format := fs.String("format", string(render.FormatMarkdown), "Documentation format: markdown, html, or both")
 	pretty := fs.Bool("pretty", true, "Pretty snapshot JSON when auto-generated")
 	_ = fs.Parse(args)
 
@@ -134,7 +140,12 @@ func runRender(args []string) {
 	}
 
 	resolvedOutDir := resolveOutputPath(*path, *outDir)
-	generated, err := render.Generate(snap, resolvedOutDir)
+	docFormat, err := render.ParseFormat(*format)
+	if err != nil {
+		exitErr("render", err)
+	}
+
+	generated, err := render.GenerateWithOptions(snap, resolvedOutDir, render.GenerateOptions{Format: docFormat})
 	if err != nil {
 		exitErr("render", err)
 	}
@@ -150,6 +161,7 @@ func runFullRun(args []string) {
 	path := fs.String("path", ".", "Path to project")
 	snapshotPath := fs.String("snapshot", "snapshot.json", "Output snapshot file")
 	docsDir := fs.String("docs", "docs", "Output docs directory")
+	format := fs.String("format", string(render.FormatMarkdown), "Documentation format: markdown, html, or both")
 	pretty := fs.Bool("pretty", true, "Pretty snapshot JSON")
 	_ = fs.Parse(args)
 
@@ -164,7 +176,12 @@ func runFullRun(args []string) {
 	}
 
 	resolvedDocsDir := resolveOutputPath(*path, *docsDir)
-	generated, err := render.Generate(snap, resolvedDocsDir)
+	docFormat, err := render.ParseFormat(*format)
+	if err != nil {
+		exitErr("run", err)
+	}
+
+	generated, err := render.GenerateWithOptions(snap, resolvedDocsDir, render.GenerateOptions{Format: docFormat})
 	if err != nil {
 		exitErr("render", err)
 	}
@@ -178,6 +195,53 @@ func runFullRun(args []string) {
 
 func runVersion() {
 	fmt.Println(versionString())
+}
+
+func runCI(args []string) {
+	fs := flag.NewFlagSet("ci", flag.ExitOnError)
+	path := fs.String("path", ".", "Path to project")
+	snapshotPath := fs.String("snapshot", "snapshot.json", "Snapshot file path")
+	docsDir := fs.String("docs", "docs", "Output docs directory")
+	format := fs.String("format", string(render.FormatMarkdown), "Documentation format: markdown, html, or both")
+	mode := fs.String("mode", string(docci.ModeCheck), "CI mode: check or update")
+	pretty := fs.Bool("pretty", true, "Pretty snapshot JSON")
+	_ = fs.Parse(args)
+
+	docFormat, err := render.ParseFormat(*format)
+	if err != nil {
+		exitErr("ci", err)
+	}
+	ciMode, err := docci.ParseMode(*mode)
+	if err != nil {
+		exitErr("ci", err)
+	}
+
+	result, err := docci.Run(docci.Options{
+		ProjectPath:  *path,
+		SnapshotPath: resolveOutputPath(*path, *snapshotPath),
+		DocsDir:      resolveOutputPath(*path, *docsDir),
+		Pretty:       *pretty,
+		Format:       docFormat,
+	}, ciMode)
+	if err != nil {
+		exitErr("ci", err)
+	}
+
+	if ciMode == docci.ModeCheck {
+		fmt.Println("generated artifacts are up to date")
+		return
+	}
+
+	fmt.Println("generated files:")
+	for _, file := range result.Generated {
+		fmt.Printf("- %s\n", file)
+	}
+	if len(result.Removed) > 0 {
+		fmt.Println("removed stale generated files:")
+		for _, file := range result.Removed {
+			fmt.Printf("- %s\n", file)
+		}
+	}
 }
 
 func loadOrScan(snapshotPath, path string) (model.Snapshot, error) {
@@ -243,8 +307,10 @@ Usage:
   docusnap scan --path . [--out snapshot.json]
   docusnap analyze --path .
   docusnap diff [--json] [--markdown-out changes.md] old.json new.json
-  docusnap render --snapshot snapshot.json --out docs
-  docusnap run --path .
+  docusnap render --snapshot snapshot.json --out docs --format markdown
+  docusnap run --path . --format both
+  docusnap generate --path /absolute/path/to/project --format html
+  docusnap ci --path . --mode check --format markdown
 
 Core workflow:
   1. scan or run
@@ -256,8 +322,10 @@ Examples:
   docusnap scan --path . --out snapshot.json
   docusnap analyze --path .
   docusnap diff --markdown-out docs/changes.md old.json new.json
-  docusnap render --snapshot snapshot.json --out docs
-  docusnap run --path .
+  docusnap render --snapshot snapshot.json --out docs --format markdown
+  docusnap run --path . --format both
+  docusnap generate --path /absolute/path/to/project --format html
+  docusnap ci --path . --mode update --format both
 `)
 }
 

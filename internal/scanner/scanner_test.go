@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/oleksandrskoruk/docusnap/internal/model"
 )
 
 func TestScanDetectsCoreSignals(t *testing.T) {
@@ -589,9 +591,369 @@ resource "aws_elasticache_cluster" "cache" {}
 	}
 }
 
+func TestScanDetectsOpenAPISpecRoutes(t *testing.T) {
+	tmp := t.TempDir()
+
+	spec := `openapi: 3.1.0
+info:
+  title: Sample API
+  version: 1.0.0
+paths:
+  /health:
+    get:
+      operationId: getHealth
+  /orders/{id}:
+    patch:
+      operationId: updateOrder
+`
+	if err := os.WriteFile(filepath.Join(tmp, "openapi.yaml"), []byte(spec), 0o644); err != nil {
+		t.Fatalf("write openapi.yaml: %v", err)
+	}
+
+	snap, err := Scan(tmp)
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+
+	if !containsString(snap.Frameworks, "openapi") {
+		t.Fatalf("expected openapi framework, got %#v", snap.Frameworks)
+	}
+	if len(snap.Routes) != 2 {
+		t.Fatalf("expected 2 routes, got %#v", snap.Routes)
+	}
+	if snap.Routes[0].Method != "GET" || snap.Routes[0].Path != "/health" || snap.Routes[0].Controller != "getHealth" {
+		t.Fatalf("unexpected first route: %#v", snap.Routes[0])
+	}
+	if snap.Routes[1].Method != "PATCH" || snap.Routes[1].Path != "/orders/:id" || snap.Routes[1].Controller != "updateOrder" {
+		t.Fatalf("unexpected second route: %#v", snap.Routes[1])
+	}
+	if !containsString(snap.DetectedFiles, "openapi.yaml") {
+		t.Fatalf("expected openapi.yaml in detected files, got %#v", snap.DetectedFiles)
+	}
+}
+
+func TestScanDetectsNextJSAPIRoutes(t *testing.T) {
+	tmp := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(tmp, "pages", "api", "users"), 0o755); err != nil {
+		t.Fatalf("mkdir pages api: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmp, "app", "api", "orders", "[id]"), 0o755); err != nil {
+		t.Fatalf("mkdir app api: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "next.config.js"), []byte("module.exports = {}\n"), 0o644); err != nil {
+		t.Fatalf("write next.config.js: %v", err)
+	}
+	pagesAPI := `export default function handler(req, res) {
+  res.status(200).json({ ok: true })
+}
+`
+	if err := os.WriteFile(filepath.Join(tmp, "pages", "api", "users", "index.ts"), []byte(pagesAPI), 0o644); err != nil {
+		t.Fatalf("write pages api route: %v", err)
+	}
+	appAPI := `export async function GET() {
+  return Response.json({ ok: true })
+}
+
+export async function DELETE() {
+  return new Response(null, { status: 204 })
+}
+`
+	if err := os.WriteFile(filepath.Join(tmp, "app", "api", "orders", "[id]", "route.ts"), []byte(appAPI), 0o644); err != nil {
+		t.Fatalf("write app api route: %v", err)
+	}
+
+	snap, err := Scan(tmp)
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+
+	if !containsString(snap.Frameworks, "next.js") {
+		t.Fatalf("expected next.js framework, got %#v", snap.Frameworks)
+	}
+	expected := map[string]bool{
+		"ANY|/api/users":         false,
+		"DELETE|/api/orders/:id": false,
+		"GET|/api/orders/:id":    false,
+	}
+	for _, route := range snap.Routes {
+		key := route.Method + "|" + route.Path
+		if _, ok := expected[key]; ok {
+			expected[key] = true
+		}
+	}
+	for key, found := range expected {
+		if !found {
+			t.Fatalf("expected next.js route %s, got %#v", key, snap.Routes)
+		}
+	}
+}
+
+func TestScanDetectsDotNetRoutesAndDependencies(t *testing.T) {
+	tmp := t.TempDir()
+
+	csproj := `<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+  </ItemGroup>
+</Project>
+`
+	if err := os.WriteFile(filepath.Join(tmp, "App.csproj"), []byte(csproj), 0o644); err != nil {
+		t.Fatalf("write csproj: %v", err)
+	}
+
+	programCS := `var app = builder.Build();
+app.MapGet("/health", Health);
+`
+	if err := os.WriteFile(filepath.Join(tmp, "Program.cs"), []byte(programCS), 0o644); err != nil {
+		t.Fatalf("write Program.cs: %v", err)
+	}
+
+	controllerDir := filepath.Join(tmp, "Controllers")
+	if err := os.MkdirAll(controllerDir, 0o755); err != nil {
+		t.Fatalf("mkdir controllers: %v", err)
+	}
+	controllerCS := `[ApiController]
+[Route("api/[controller]")]
+public class OrdersController : ControllerBase
+{
+    [HttpPost("")]
+    public IActionResult Create()
+    {
+        return Ok();
+    }
+}
+`
+	if err := os.WriteFile(filepath.Join(controllerDir, "OrdersController.cs"), []byte(controllerCS), 0o644); err != nil {
+		t.Fatalf("write controller: %v", err)
+	}
+
+	snap, err := Scan(tmp)
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+
+	if !containsString(snap.Languages, "csharp") {
+		t.Fatalf("expected csharp language, got %#v", snap.Languages)
+	}
+	if !containsString(snap.PackageManagers, "nuget") {
+		t.Fatalf("expected nuget package manager, got %#v", snap.PackageManagers)
+	}
+	if !containsString(snap.Frameworks, "asp.net") {
+		t.Fatalf("expected asp.net framework, got %#v", snap.Frameworks)
+	}
+	if len(snap.Dependencies["nuget"]) != 1 || snap.Dependencies["nuget"][0].Name != "Swashbuckle.AspNetCore" {
+		t.Fatalf("unexpected nuget dependencies: %#v", snap.Dependencies["nuget"])
+	}
+	expected := map[string]bool{
+		"GET|/health":      false,
+		"POST|/api/Orders": false,
+	}
+	for _, route := range snap.Routes {
+		key := route.Method + "|" + route.Path
+		if _, ok := expected[key]; ok {
+			expected[key] = true
+		}
+	}
+	for key, found := range expected {
+		if !found {
+			t.Fatalf("expected asp.net route %s, got %#v", key, snap.Routes)
+		}
+	}
+}
+
+func TestParsePomXML(t *testing.T) {
+	tmp := t.TempDir()
+	pomPath := filepath.Join(tmp, "pom.xml")
+	content := `<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+      <version>3.3.1</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+    </dependency>
+  </dependencies>
+</project>
+`
+	if err := os.WriteFile(pomPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write pom.xml: %v", err)
+	}
+
+	deps, err := parsePomXML(pomPath)
+	if err != nil {
+		t.Fatalf("parse pom.xml: %v", err)
+	}
+	if len(deps) != 2 {
+		t.Fatalf("expected 2 dependencies, got %#v", deps)
+	}
+	if deps[0].Name != "com.fasterxml.jackson.core:jackson-databind" {
+		t.Fatalf("unexpected first dependency: %#v", deps[0])
+	}
+	if deps[1].Name != "org.springframework.boot:spring-boot-starter-web" || deps[1].Version != "3.3.1" {
+		t.Fatalf("unexpected second dependency: %#v", deps[1])
+	}
+}
+
+func TestParseGradleFile(t *testing.T) {
+	tmp := t.TempDir()
+	gradlePath := filepath.Join(tmp, "build.gradle")
+	content := `dependencies {
+  implementation 'org.springframework.boot:spring-boot-starter-web:3.3.1'
+  testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
+  implementation group: 'com.fasterxml.jackson.core', name: 'jackson-databind', version: '2.17.2'
+}
+`
+	if err := os.WriteFile(gradlePath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write build.gradle: %v", err)
+	}
+
+	deps, err := parseGradleFile(gradlePath)
+	if err != nil {
+		t.Fatalf("parse build.gradle: %v", err)
+	}
+	if len(deps) != 3 {
+		t.Fatalf("expected 3 dependencies, got %#v", deps)
+	}
+	if !containsDependency(deps, "org.springframework.boot:spring-boot-starter-web", "3.3.1") {
+		t.Fatalf("expected spring dependency, got %#v", deps)
+	}
+	if !containsDependency(deps, "com.fasterxml.jackson.core:jackson-databind", "2.17.2") {
+		t.Fatalf("expected jackson dependency, got %#v", deps)
+	}
+}
+
+func TestParseSpringRoutes(t *testing.T) {
+	tmp := t.TempDir()
+	javaPath := filepath.Join(tmp, "OrdersController.java")
+	content := `@RestController
+@RequestMapping("/api/orders")
+public class OrdersController {
+    @GetMapping("/{id}")
+    public Order getOrder() {
+        return null;
+    }
+
+    @RequestMapping(path = "", method = RequestMethod.POST)
+    public Order createOrder() {
+        return null;
+    }
+}
+`
+	if err := os.WriteFile(javaPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write java route file: %v", err)
+	}
+
+	routes, usedSpring, err := parseSpringRoutes(javaPath)
+	if err != nil {
+		t.Fatalf("parse spring routes: %v", err)
+	}
+	if !usedSpring {
+		t.Fatalf("expected spring usage")
+	}
+	if len(routes) != 2 {
+		t.Fatalf("expected 2 routes, got %#v", routes)
+	}
+	if routes[0].Method != "GET" || routes[0].Path != "/api/orders/{id}" && routes[0].Path != "/api/orders/:id" {
+		t.Fatalf("unexpected first route: %#v", routes[0])
+	}
+	if routes[1].Method != "POST" || routes[1].Path != "/api/orders" {
+		t.Fatalf("unexpected second route: %#v", routes[1])
+	}
+}
+
+func TestScanDetectsJavaSpringAndBuildManagers(t *testing.T) {
+	tmp := t.TempDir()
+
+	pom := `<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+      <version>3.3.1</version>
+    </dependency>
+  </dependencies>
+</project>
+`
+	if err := os.WriteFile(filepath.Join(tmp, "pom.xml"), []byte(pom), 0o644); err != nil {
+		t.Fatalf("write pom.xml: %v", err)
+	}
+	gradle := `dependencies {
+  implementation("org.springframework.boot:spring-boot-starter-web:3.3.1")
+}
+`
+	if err := os.WriteFile(filepath.Join(tmp, "build.gradle.kts"), []byte(gradle), 0o644); err != nil {
+		t.Fatalf("write build.gradle.kts: %v", err)
+	}
+
+	srcDir := filepath.Join(tmp, "src", "main", "java", "com", "example")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatalf("mkdir src dir: %v", err)
+	}
+	appJava := `@SpringBootApplication
+public class DemoApplication {
+    public static void main(String[] args) {}
+}
+`
+	if err := os.WriteFile(filepath.Join(srcDir, "DemoApplication.java"), []byte(appJava), 0o644); err != nil {
+		t.Fatalf("write DemoApplication.java: %v", err)
+	}
+	controllerJava := `@RestController
+@RequestMapping("/api")
+public class HealthController {
+    @GetMapping("/health")
+    public String health() {
+        return "ok";
+    }
+}
+`
+	if err := os.WriteFile(filepath.Join(srcDir, "HealthController.java"), []byte(controllerJava), 0o644); err != nil {
+		t.Fatalf("write HealthController.java: %v", err)
+	}
+
+	snap, err := Scan(tmp)
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+
+	if !containsString(snap.Languages, "java") {
+		t.Fatalf("expected java language, got %#v", snap.Languages)
+	}
+	if !containsString(snap.PackageManagers, "maven") || !containsString(snap.PackageManagers, "gradle") {
+		t.Fatalf("expected maven and gradle managers, got %#v", snap.PackageManagers)
+	}
+	if !containsString(snap.Frameworks, "spring") {
+		t.Fatalf("expected spring framework, got %#v", snap.Frameworks)
+	}
+	if !containsDependency(snap.Dependencies["maven"], "org.springframework.boot:spring-boot-starter-web", "3.3.1") {
+		t.Fatalf("expected maven spring dependency, got %#v", snap.Dependencies["maven"])
+	}
+	if !containsDependency(snap.Dependencies["gradle"], "org.springframework.boot:spring-boot-starter-web", "3.3.1") {
+		t.Fatalf("expected gradle spring dependency, got %#v", snap.Dependencies["gradle"])
+	}
+	if len(snap.Routes) != 1 || snap.Routes[0].Method != "GET" || snap.Routes[0].Path != "/api/health" {
+		t.Fatalf("unexpected spring routes: %#v", snap.Routes)
+	}
+	if !containsString(snap.EntryPoints, "src/main/java/com/example/DemoApplication.java") {
+		t.Fatalf("expected DemoApplication as entry point, got %#v", snap.EntryPoints)
+	}
+}
+
 func containsString(items []string, target string) bool {
 	for _, item := range items {
 		if item == target {
+			return true
+		}
+	}
+	return false
+}
+
+func containsDependency(items []model.Dependency, name, version string) bool {
+	for _, item := range items {
+		if item.Name == name && item.Version == version {
 			return true
 		}
 	}
