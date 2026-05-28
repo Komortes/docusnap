@@ -68,6 +68,8 @@ jobs:
         run: go run ./cmd/docusnap ci --path . --snapshot snapshot.json --docs docs --format markdown --mode update
 
       - name: Commit and push if changed
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           if git diff --quiet -- snapshot.json docs; then
             echo "No generated changes"
@@ -77,12 +79,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add snapshot.json docs
-          git commit -m "chore(docs): update generated snapshot and docs"
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          git commit -m "chore(docs): update generated snapshot and docs [skip ci]"
+          git push origin "HEAD:${HEAD_REF}"
 
   docs-update:
     name: Refresh Generated Snapshot And Docs
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'update')
+    if: (github.event_name == 'push' && github.actor != 'github-actions[bot]') || (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'update')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -113,5 +115,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add snapshot.json docs
-          git commit -m "chore(docs): update generated snapshot and docs"
+          git commit -m "chore(docs): update generated snapshot and docs [skip ci]"
           git push

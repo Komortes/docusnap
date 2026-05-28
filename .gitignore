@@ -1,0 +1,23 @@
+# Build output
+bin/
+dist/
+/docusnap
+/docusnap.exe
+
+# Release archives (binaries are published via GitHub Releases, not committed)
+release/*.tar.gz
+release/*.zip
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Test artifacts
+*.test
+coverage.out

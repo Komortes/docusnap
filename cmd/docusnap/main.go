@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/oleksandrskoruk/docusnap/internal/analyzer"
-	docci "github.com/oleksandrskoruk/docusnap/internal/ci"
+	"github.com/oleksandrskoruk/docusnap/internal/ci"
 	"github.com/oleksandrskoruk/docusnap/internal/diff"
 	"github.com/oleksandrskoruk/docusnap/internal/model"
 	"github.com/oleksandrskoruk/docusnap/internal/render"
@@ -116,6 +116,9 @@ func runDiff(args []string) {
 			exitErr("write markdown report", err)
 		}
 		fmt.Printf("markdown report written: %s\n", *markdownOut)
+		if !*jsonOut {
+			return
+		}
 	}
 	if *jsonOut {
 		printJSON(result, *pretty)
@@ -203,7 +206,7 @@ func runCI(args []string) {
 	snapshotPath := fs.String("snapshot", "snapshot.json", "Snapshot file path")
 	docsDir := fs.String("docs", "docs", "Output docs directory")
 	format := fs.String("format", string(render.FormatMarkdown), "Documentation format: markdown, html, or both")
-	mode := fs.String("mode", string(docci.ModeCheck), "CI mode: check or update")
+	mode := fs.String("mode", string(ci.ModeCheck), "CI mode: check or update")
 	pretty := fs.Bool("pretty", true, "Pretty snapshot JSON")
 	_ = fs.Parse(args)
 
@@ -211,12 +214,12 @@ func runCI(args []string) {
 	if err != nil {
 		exitErr("ci", err)
 	}
-	ciMode, err := docci.ParseMode(*mode)
+	ciMode, err := ci.ParseMode(*mode)
 	if err != nil {
 		exitErr("ci", err)
 	}
 
-	result, err := docci.Run(docci.Options{
+	result, err := ci.Run(ci.Options{
 		ProjectPath:  *path,
 		SnapshotPath: resolveOutputPath(*path, *snapshotPath),
 		DocsDir:      resolveOutputPath(*path, *docsDir),
@@ -227,7 +230,7 @@ func runCI(args []string) {
 		exitErr("ci", err)
 	}
 
-	if ciMode == docci.ModeCheck {
+	if ciMode == ci.ModeCheck {
 		fmt.Println("generated artifacts are up to date")
 		return
 	}
