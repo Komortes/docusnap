@@ -396,12 +396,23 @@ func buildModuleGraphMermaid(root string) string {
 	}
 	sort.Strings(groupNames)
 
+	groupID := make(map[string]string, len(groupNames))
+	usedGroupIDs := map[string]int{}
+	for _, group := range groupNames {
+		base := sanitizeMermaidID("G_" + group)
+		if count := usedGroupIDs[base]; count > 0 {
+			groupID[group] = fmt.Sprintf("%s_%d", base, count+1)
+		} else {
+			groupID[group] = base
+		}
+		usedGroupIDs[base]++
+	}
+
 	var b strings.Builder
 	b.WriteString("~~~mermaid\n")
 	b.WriteString("graph TD\n")
 	for _, group := range groupNames {
-		groupID := sanitizeMermaidID("G_" + group)
-		b.WriteString(fmt.Sprintf(`  subgraph %s["%s"]`+"\n", groupID, escapeMermaidLabel(group)))
+		b.WriteString(fmt.Sprintf(`  subgraph %s["%s"]`+"\n", groupID[group], escapeMermaidLabel(group)))
 		for _, label := range groups[group] {
 			b.WriteString(fmt.Sprintf(`    %s["%s"]`+"\n", nodeID[label], escapeMermaidLabel(label)))
 		}
@@ -925,22 +936,33 @@ func parsePHPAutoloadMappings(root string) []phpAutoloadMapping {
 
 	var composer struct {
 		Autoload struct {
-			PSR4 map[string]string `json:"psr-4"`
+			PSR4 map[string]json.RawMessage `json:"psr-4"`
 		} `json:"autoload"`
 		AutoloadDev struct {
-			PSR4 map[string]string `json:"psr-4"`
+			PSR4 map[string]json.RawMessage `json:"psr-4"`
 		} `json:"autoload-dev"`
 	}
 	if err := json.Unmarshal(data, &composer); err != nil {
 		return nil
 	}
 
+	resolvePSR4Dir := func(raw json.RawMessage) string {
+		var dir string
+		if err := json.Unmarshal(raw, &dir); err == nil {
+			return filepath.ToSlash(strings.Trim(strings.TrimSpace(dir), "/"))
+		}
+		var dirs []string
+		if err := json.Unmarshal(raw, &dirs); err == nil && len(dirs) > 0 {
+			return filepath.ToSlash(strings.Trim(strings.TrimSpace(dirs[0]), "/"))
+		}
+		return ""
+	}
+
 	mappings := make([]phpAutoloadMapping, 0)
-	appendMappings := func(psr4 map[string]string) {
-		for prefix, dir := range psr4 {
+	appendMappings := func(psr4 map[string]json.RawMessage) {
+		for prefix, raw := range psr4 {
 			prefix = strings.TrimSpace(prefix)
-			dir = filepath.ToSlash(strings.TrimSpace(dir))
-			dir = strings.Trim(dir, "/")
+			dir := resolvePSR4Dir(raw)
 			if prefix == "" || dir == "" {
 				continue
 			}

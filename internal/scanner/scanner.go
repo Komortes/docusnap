@@ -525,6 +525,7 @@ func parseCargoToml(path string) ([]model.Dependency, error) {
 	defer file.Close()
 
 	inDependencies := false
+	currentSubDep := ""
 	deps := make([]model.Dependency, 0)
 	scanner := bufio.NewScanner(file)
 
@@ -535,7 +536,35 @@ func parseCargoToml(path string) ([]model.Dependency, error) {
 		}
 
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			inDependencies = line == "[dependencies]"
+			if line == "[dependencies]" {
+				inDependencies = true
+				currentSubDep = ""
+			} else if strings.HasPrefix(line, "[dependencies.") {
+				subDepName := strings.TrimSuffix(strings.TrimPrefix(line, "[dependencies."), "]")
+				subDepName = strings.TrimSpace(subDepName)
+				if subDepName != "" {
+					deps = append(deps, model.Dependency{Name: subDepName, Version: ""})
+					currentSubDep = subDepName
+				}
+				inDependencies = false
+			} else {
+				inDependencies = false
+				currentSubDep = ""
+			}
+			continue
+		}
+
+		if currentSubDep != "" {
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 && strings.TrimSpace(parts[0]) == "version" {
+				version := strings.Trim(strings.TrimSpace(parts[1]), "\"")
+				for i := len(deps) - 1; i >= 0; i-- {
+					if deps[i].Name == currentSubDep {
+						deps[i].Version = version
+						break
+					}
+				}
+			}
 			continue
 		}
 
@@ -890,6 +919,7 @@ func parseDockerComposeServices(path string) ([]string, error) {
 	found := map[string]struct{}{}
 	inServices := false
 	servicesIndent := -1
+	serviceKeyIndent := -1
 	currentServiceIndent := -1
 
 	s := bufio.NewScanner(file)
@@ -905,6 +935,7 @@ func parseDockerComposeServices(path string) ([]string, error) {
 			if trimmed == "services:" {
 				inServices = true
 				servicesIndent = indent
+				serviceKeyIndent = -1
 			}
 			continue
 		}
@@ -914,7 +945,11 @@ func parseDockerComposeServices(path string) ([]string, error) {
 			continue
 		}
 
-		if isYAMLKey(trimmed) && indent == servicesIndent+2 {
+		if serviceKeyIndent == -1 && indent > servicesIndent && isYAMLKey(trimmed) {
+			serviceKeyIndent = indent
+		}
+
+		if isYAMLKey(trimmed) && serviceKeyIndent != -1 && indent == serviceKeyIndent {
 			serviceName := strings.TrimSuffix(trimmed, ":")
 			currentServiceIndent = indent
 			if svc := detectInfraService(serviceName); svc != "" {
@@ -1326,11 +1361,6 @@ func parseFastAPIRoutes(path string) ([]model.Route, bool, error) {
 				continue
 			}
 
-			if strings.HasPrefix(line, "@") {
-				pendingReceiver = ""
-				pendingMethod = ""
-				pendingPath = ""
-			}
 		}
 	}
 	if err := s.Err(); err != nil {
@@ -1421,11 +1451,6 @@ func parseFlaskRoutes(path string) ([]model.Route, bool, error) {
 				continue
 			}
 
-			if strings.HasPrefix(line, "@") {
-				pendingReceiver = ""
-				pendingPath = ""
-				pendingMethods = nil
-			}
 		}
 	}
 	if err := s.Err(); err != nil {

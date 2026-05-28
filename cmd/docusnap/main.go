@@ -256,8 +256,12 @@ func loadOrScan(snapshotPath, path string) (model.Snapshot, error) {
 
 func loadSnapshotOrGenerate(snapshotPath, projectPath string, pretty bool) (model.Snapshot, error) {
 	resolvedSnapshotPath := resolveOutputPath(projectPath, snapshotPath)
-	if _, err := os.Stat(resolvedSnapshotPath); err == nil {
+	_, statErr := os.Stat(resolvedSnapshotPath)
+	if statErr == nil {
 		return model.ReadSnapshot(resolvedSnapshotPath)
+	}
+	if !os.IsNotExist(statErr) {
+		return model.Snapshot{}, statErr
 	}
 
 	snap, err := scanner.Scan(projectPath)

@@ -518,15 +518,15 @@ var htmlTemplateSource = `<!DOCTYPE html>
       <h2>Graphs</h2>
       {{- if .DependencyGraphCode }}
       <h3>Dependency graph</h3>
-      <div class="diagram"><div class="mermaid">{{ .DependencyGraphCode }}</div></div>
+      <div class="diagram"><div class="mermaid">{{ safeHTML .DependencyGraphCode }}</div></div>
       {{- end }}
       {{- if .ModuleGraphCode }}
       <h3>Module graph</h3>
-      <div class="diagram"><div class="mermaid">{{ .ModuleGraphCode }}</div></div>
+      <div class="diagram"><div class="mermaid">{{ safeHTML .ModuleGraphCode }}</div></div>
       {{- end }}
       {{- if .LaravelArchitectureCode }}
       <h3>Laravel layer graph</h3>
-      <div class="diagram"><div class="mermaid">{{ .LaravelArchitectureCode }}</div></div>
+      <div class="diagram"><div class="mermaid">{{ safeHTML .LaravelArchitectureCode }}</div></div>
       {{- end }}
       {{- if and (eq .DependencyGraphCode "") (eq .ModuleGraphCode "") (eq .LaravelArchitectureCode "") }}
       <p>No graphable relationships were detected.</p>
@@ -707,7 +707,10 @@ func renderHTMLSite(outDir, templateDir string, data templateData) (string, erro
 }
 
 func renderHTMLFile(path, src string, data templateData) error {
-	tmpl, err := htmltemplate.New(filepath.Base(path)).Parse(src)
+	funcMap := htmltemplate.FuncMap{
+		"safeHTML": func(s string) htmltemplate.HTML { return htmltemplate.HTML(s) },
+	}
+	tmpl, err := htmltemplate.New(filepath.Base(path)).Funcs(funcMap).Parse(src)
 	if err != nil {
 		return err
 	}

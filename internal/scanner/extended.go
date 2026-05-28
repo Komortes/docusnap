@@ -138,7 +138,7 @@ func parseOpenAPIYAMLRoutes(data []byte) ([]model.Route, bool, error) {
 			currentMethod = ""
 			continue
 		}
-		if indent == 2 && strings.HasSuffix(trimmed, ":") && strings.HasPrefix(trimmed, "/") {
+		if indent > 0 && strings.HasSuffix(trimmed, ":") && strings.HasPrefix(trimmed, "/") {
 			currentPath = strings.TrimSuffix(trimmed, ":")
 			currentMethod = ""
 			continue
@@ -318,6 +318,7 @@ func parseDotNetRoutes(path string) ([]model.Route, bool, error) {
 	routes := make([]model.Route, 0)
 	usedAspNet := false
 	classPrefix := ""
+	pendingRoutePrefix := ""
 	currentClass := ""
 	pendingMethods := make([]string, 0)
 	pendingSuffix := ""
@@ -335,7 +336,7 @@ func parseDotNetRoutes(path string) ([]model.Route, bool, error) {
 			}
 			routes = append(routes, model.Route{
 				Method:     strings.ToUpper(m[1]),
-				Path:       normalizeRoutePath(m[2]),
+				Path:       normalizeOpenAPIPath(m[2]),
 				Controller: controller,
 			})
 			usedAspNet = true
@@ -354,7 +355,7 @@ func parseDotNetRoutes(path string) ([]model.Route, bool, error) {
 				}
 				routes = append(routes, model.Route{
 					Method:     method,
-					Path:       normalizeRoutePath(m[1]),
+					Path:       normalizeOpenAPIPath(m[1]),
 					Controller: strings.TrimSpace(m[3]),
 				})
 			}
@@ -363,15 +364,19 @@ func parseDotNetRoutes(path string) ([]model.Route, bool, error) {
 		}
 
 		if m := dotNetRouteAttrPattern.FindStringSubmatch(line); len(m) == 2 {
-			classPrefix = strings.TrimSpace(m[1])
+			pendingRoutePrefix = strings.TrimSpace(m[1])
 			usedAspNet = true
 			continue
 		}
 		if m := dotNetClassPattern.FindStringSubmatch(line); len(m) == 2 {
 			currentClass = strings.TrimSpace(m[1])
-			if strings.Contains(classPrefix, "[controller]") {
+			classPrefix = pendingRoutePrefix
+			pendingRoutePrefix = ""
+			if strings.Contains(strings.ToLower(classPrefix), "[controller]") {
 				controllerName := strings.TrimSuffix(currentClass, "Controller")
-				classPrefix = strings.ReplaceAll(classPrefix, "[controller]", controllerName)
+				lower := strings.ToLower(classPrefix)
+				idx := strings.Index(lower, "[controller]")
+				classPrefix = classPrefix[:idx] + controllerName + classPrefix[idx+len("[controller]"):]
 			}
 			continue
 		}
