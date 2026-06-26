@@ -4,9 +4,8 @@ dist/
 /docusnap
 /docusnap.exe
 
-# Release archives (binaries are published via GitHub Releases, not committed)
-release/*.tar.gz
-release/*.zip
+# Release output (published via GitHub Releases, not committed)
+release/
 
 # macOS
 .DS_Store

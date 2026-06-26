@@ -9,15 +9,6 @@
 | Package managers | go, npm, pip |
 | Infrastructure | docker, env-file, postgres, redis |
 
-## Layer Diagram
-
-~~~mermaid
-graph TD
-Controllers --> Services
-Services --> Repositories
-Repositories --> Database
-~~~
-
 ## Project Structure Signals
 | Path | Files | Source | Tests |
 |---|---|---|---|
@@ -26,3 +17,13 @@ Repositories --> Database
 | internal/store | 1 | 1 | 0 |
 | py | 2 | 2 | 0 |
 | web | 2 | 2 | 0 |
+## Layer Diagram
+
+Generic 3-tier pattern — project-specific graph not available for this stack.
+
+~~~mermaid
+graph TD
+Controllers --> Services
+Services --> Repositories
+Repositories --> Database
+~~~

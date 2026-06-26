@@ -40,6 +40,15 @@ func TestScanDetectsCoreSignals(t *testing.T) {
 	}
 }
 
+func TestScanReturnsErrorForMissingRoot(t *testing.T) {
+	missingRoot := filepath.Join(t.TempDir(), "missing")
+
+	_, err := Scan(missingRoot)
+	if err == nil {
+		t.Fatalf("expected scan to fail for missing root")
+	}
+}
+
 func TestParseLaravelRoutes(t *testing.T) {
 	tmp := t.TempDir()
 	routesFile := filepath.Join(tmp, "api.php")

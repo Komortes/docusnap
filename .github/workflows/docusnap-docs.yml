@@ -6,15 +6,6 @@ on:
     branches:
       - main
   workflow_dispatch:
-    inputs:
-      mode:
-        description: Run mode
-        required: true
-        default: check
-        type: choice
-        options:
-          - check
-          - update
 
 concurrency:
   group: docusnap-docs-${{ github.ref }}
@@ -24,9 +15,8 @@ permissions:
   contents: read
 
 jobs:
-  docs-check:
-    name: Verify Generated Snapshot And Docs
-    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'check')
+  docs-smoke:
+    name: Test And Smoke Generate Docs
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -40,80 +30,5 @@ jobs:
       - name: Run tests
         run: go test ./...
 
-      - name: Check generated files are up to date
-        run: go run ./cmd/docusnap ci --path . --snapshot snapshot.json --docs docs --format markdown --mode check
-
-  docs-update-pr:
-    name: Refresh Generated Snapshot And Docs For PR
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout PR branch
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.ref }}
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
-      - name: Run tests
-        run: go test ./...
-
-      - name: Update generated snapshot and docs
-        run: go run ./cmd/docusnap ci --path . --snapshot snapshot.json --docs docs --format markdown --mode update
-
-      - name: Commit and push if changed
-        env:
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-        run: |
-          if git diff --quiet -- snapshot.json docs; then
-            echo "No generated changes"
-            exit 0
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add snapshot.json docs
-          git commit -m "chore(docs): update generated snapshot and docs [skip ci]"
-          git push origin "HEAD:${HEAD_REF}"
-
-  docs-update:
-    name: Refresh Generated Snapshot And Docs
-    if: (github.event_name == 'push' && github.actor != 'github-actions[bot]') || (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'update')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
-      - name: Run tests
-        run: go test ./...
-
-      - name: Generate snapshot and docs
-        run: go run ./cmd/docusnap ci --path . --snapshot snapshot.json --docs docs --format markdown --mode update
-
-      - name: Commit and push if changed
-        run: |
-          if git diff --quiet -- snapshot.json docs; then
-            echo "No generated changes"
-            exit 0
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add snapshot.json docs
-          git commit -m "chore(docs): update generated snapshot and docs [skip ci]"
-          git push
+      - name: Smoke generate snapshot and docs
+        run: go run ./cmd/docusnap run --path . --snapshot /tmp/docusnap-snapshot.json --docs /tmp/docusnap-docs --format both

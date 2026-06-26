@@ -209,15 +209,6 @@ No module links detected.
 | Package managers | {{ .PackageManagersText }} |
 | Infrastructure | {{ .InfrastructureText }} |
 
-## Layer Diagram
-
-~~~mermaid
-graph TD
-Controllers --> Services
-Services --> Repositories
-Repositories --> Database
-~~~
-
 ## Project Structure Signals
 {{- if .DirectoryViews }}
 | Path | Files | Source | Tests |
@@ -236,6 +227,17 @@ Derived from PHP namespace imports inside app/*.
 
 {{ .LaravelArchitectureMermaid }}
 
+{{- else }}
+## Layer Diagram
+
+Generic 3-tier pattern — project-specific graph not available for this stack.
+
+~~~mermaid
+graph TD
+Controllers --> Services
+Services --> Repositories
+Repositories --> Database
+~~~
 {{- end }}
 `,
 }
@@ -348,7 +350,11 @@ func buildDependencyGraphMermaid(deps map[string][]model.Dependency) string {
 }
 
 func escapeMermaidLabel(v string) string {
-	return strings.ReplaceAll(v, `"`, `'`)
+	v = strings.ReplaceAll(v, `&`, `&amp;`)
+	v = strings.ReplaceAll(v, `<`, `&lt;`)
+	v = strings.ReplaceAll(v, `>`, `&gt;`)
+	v = strings.ReplaceAll(v, `"`, `'`)
+	return v
 }
 
 type moduleEdge struct {

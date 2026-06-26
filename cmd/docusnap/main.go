@@ -160,7 +160,11 @@ func runRender(args []string) {
 }
 
 func runFullRun(args []string) {
-	fs := flag.NewFlagSet("run", flag.ExitOnError)
+	cmd := "run"
+	if len(os.Args) > 1 && os.Args[1] == "generate" {
+		cmd = "generate"
+	}
+	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
 	path := fs.String("path", ".", "Path to project")
 	snapshotPath := fs.String("snapshot", "snapshot.json", "Output snapshot file")
 	docsDir := fs.String("docs", "docs", "Output docs directory")
