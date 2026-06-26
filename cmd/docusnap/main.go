@@ -37,9 +37,9 @@ func main() {
 	case "render":
 		runRender(os.Args[2:])
 	case "run":
-		runFullRun(os.Args[2:])
+		runFullRun("run", os.Args[2:])
 	case "generate":
-		runFullRun(os.Args[2:])
+		runFullRun("generate", os.Args[2:])
 	case "ci":
 		runCI(os.Args[2:])
 	case "version":
@@ -159,11 +159,7 @@ func runRender(args []string) {
 	}
 }
 
-func runFullRun(args []string) {
-	cmd := "run"
-	if len(os.Args) > 1 && os.Args[1] == "generate" {
-		cmd = "generate"
-	}
+func runFullRun(cmd string, args []string) {
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
 	path := fs.String("path", ".", "Path to project")
 	snapshotPath := fs.String("snapshot", "snapshot.json", "Output snapshot file")

@@ -220,7 +220,7 @@ func compareDependencies(oldDeps, newDeps map[string][]model.Dependency) map[str
 			}
 		}
 		if len(added) > 0 {
-			sortDependencies(added)
+			model.SortDependencies(added)
 			out[manager] = added
 		}
 	}
@@ -294,15 +294,6 @@ func dependencyLines(prefix string, groups map[string][]model.Dependency) []stri
 		}
 	}
 	return lines
-}
-
-func sortDependencies(items []model.Dependency) {
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].Name == items[j].Name {
-			return items[i].Version < items[j].Version
-		}
-		return items[i].Name < items[j].Name
-	})
 }
 
 func writeMarkdownStringSection(b *strings.Builder, title string, added, removed []string) {

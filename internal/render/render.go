@@ -854,6 +854,7 @@ var (
 	pyFromPattern             = regexp.MustCompile(`(?m)^\s*from\s+(\.+[A-Za-z0-9_\.]*)\s+import\s+`)
 	phpNamespacePattern       = regexp.MustCompile(`(?m)^\s*namespace\s+([^;]+);`)
 	phpUsePattern             = regexp.MustCompile(`(?m)^\s*use\s+([^;]+);`)
+	phpAliasPattern           = regexp.MustCompile(`\s+as\s+`)
 )
 
 func parseJSImportEdges(root, path string) []moduleEdge {
@@ -1058,7 +1059,7 @@ func expandPHPUseTargets(raw string) []string {
 }
 
 func stripPHPAlias(raw string) string {
-	aliasSplit := regexp.MustCompile(`\s+as\s+`).Split(strings.TrimSpace(raw), 2)
+	aliasSplit := phpAliasPattern.Split(strings.TrimSpace(raw), 2)
 	return strings.TrimSpace(aliasSplit[0])
 }
 

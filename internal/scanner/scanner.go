@@ -270,7 +270,7 @@ func Scan(root string) (model.Snapshot, error) {
 	}
 
 	for manager := range dependencies {
-		sortDependencies(dependencies[manager])
+		model.SortDependencies(dependencies[manager])
 		detectFrameworksFromDependencies(manager, dependencies[manager], frameworkSet)
 	}
 
@@ -783,17 +783,8 @@ func uniqueDependencies(items []model.Dependency) []model.Dependency {
 	for name, version := range seen {
 		out = append(out, model.Dependency{Name: name, Version: version})
 	}
-	sortDependencies(out)
+	model.SortDependencies(out)
 	return out
-}
-
-func sortDependencies(items []model.Dependency) {
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].Name == items[j].Name {
-			return items[i].Version < items[j].Version
-		}
-		return items[i].Name < items[j].Name
-	})
 }
 
 func detectFrameworksFromDependencies(manager string, deps []model.Dependency, set map[string]struct{}) {

@@ -1,5 +1,7 @@
 package model
 
+import "sort"
+
 // Dependency describes a package entry extracted from a manifest file.
 type Dependency struct {
 	Name    string `json:"name"`
@@ -45,6 +47,16 @@ type APIGroup struct {
 	Prefix     string   `json:"prefix"`
 	RouteCount int      `json:"routeCount"`
 	Methods    []string `json:"methods"`
+}
+
+// SortDependencies sorts a dependency slice by name, then version.
+func SortDependencies(items []Dependency) {
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Name == items[j].Name {
+			return items[i].Version < items[j].Version
+		}
+		return items[i].Name < items[j].Name
+	})
 }
 
 // Snapshot is the machine-readable description of a scanned repository.
