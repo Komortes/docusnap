@@ -1,7 +1,7 @@
 # DocuSnap
 
-[![CI](https://github.com/oleksandrskoruk/docusnap/actions/workflows/docusnap-docs.yml/badge.svg)](https://github.com/oleksandrskoruk/docusnap/actions/workflows/docusnap-docs.yml)
-[![Go](https://img.shields.io/github/go-mod/go-version/oleksandrskoruk/docusnap)](go.mod)
+[![CI](https://github.com/Komortes/docusnap/actions/workflows/docusnap-docs.yml/badge.svg)](https://github.com/Komortes/docusnap/actions/workflows/docusnap-docs.yml)
+[![Go](https://img.shields.io/github/go-mod/go-version/Komortes/docusnap?color=00ADD8)](go.mod)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 DocuSnap is a local-first CLI for scanning repositories, generating documentation from real code and config files, and comparing repository snapshots between versions.
@@ -182,7 +182,7 @@ go install ./cmd/docusnap
 Installer script from the latest GitHub release:
 
 ```bash
-curl -fsSL https://github.com/oleksandrskoruk/docusnap/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/Komortes/docusnap/releases/latest/download/install.sh | bash
 ```
 
 Version metadata is injected through `ldflags`. If the current commit is tagged, the build uses that exact tag. Otherwise it falls back to `dev-<short-sha>`.
